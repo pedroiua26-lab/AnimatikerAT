@@ -12,8 +12,12 @@ const markersContainer = document.getElementById("markers");
 const playhead = document.getElementById("playhead");
 const zoomInButton = document.getElementById("zoomIn");
 const zoomOutButton = document.getElementById("zoomOut");
+const playheadBackButton = document.getElementById("playheadBack");
+const playheadForwardButton = document.getElementById("playheadForward");
 const addMarkerButton = document.getElementById("addMarker");
 const deleteMarkerButton = document.getElementById("deleteMarker");
+const undoChangeButton = document.getElementById("undoChange");
+const redoChangeButton = document.getElementById("redoChange");
 const saveChangesButton = document.getElementById("saveChanges");
 const analyzeButton = document.getElementById("analyzeButton");
 const statusEl = document.getElementById("status");
@@ -29,6 +33,10 @@ let currentVideoUrl = null;
 let selectedMarkerIndex = null;
 let isDirty = false;
 let zoomLevel = 1;
+let selectedMarkerLockedToPlayhead = false;
+let history = [];
+let historyIndex = -1;
+let savedMarkersSnapshot = "[]";
 
 const storedApiBase = localStorage.getItem("animaticApiBase");
 apiBaseInput.value = storedApiBase || DEFAULT_API_BASE;
@@ -49,9 +57,77 @@ function getTimelineWidth() {
   return baseWidth * zoomLevel;
 }
 
-function markAsDirty() {
-  isDirty = true;
-  saveChangesButton.style.display = "inline-block";
+function serializeMarkers(markerList = markers) {
+  return JSON.stringify(markerList.map((marker) => ({ frame: marker.frame })));
+}
+
+function setDirtyState(dirty) {
+  isDirty = dirty;
+  saveChangesButton.style.display = dirty ? "inline-block" : "none";
+}
+
+function syncDirtyStateWithSavedSnapshot() {
+  setDirtyState(serializeMarkers() !== savedMarkersSnapshot);
+}
+
+function setVideoTimeByFrame(frame) {
+  if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration)) {
+    return;
+  }
+  const totalFrames = Math.max(1, timeToFrame(videoPlayer.duration));
+  const safeFrame = Math.max(0, Math.min(frame, totalFrames));
+  videoPlayer.currentTime = frameToTime(safeFrame);
+}
+
+function updateUndoRedoButtons() {
+  undoChangeButton.disabled = historyIndex <= 0;
+  redoChangeButton.disabled = historyIndex >= history.length - 1;
+}
+
+function pushHistorySnapshot() {
+  const snapshot = {
+    markers: markers.map((marker) => ({ frame: marker.frame })),
+    selectedMarkerIndex,
+    selectedMarkerLockedToPlayhead,
+  };
+
+  history = history.slice(0, historyIndex + 1);
+  history.push(snapshot);
+  historyIndex = history.length - 1;
+  updateUndoRedoButtons();
+}
+
+function restoreHistorySnapshot(targetIndex) {
+  if (targetIndex < 0 || targetIndex >= history.length) {
+    return;
+  }
+
+  const snapshot = history[targetIndex];
+  historyIndex = targetIndex;
+  markers = snapshot.markers.map((marker) => ({ frame: marker.frame }));
+
+  if (snapshot.selectedMarkerIndex === null || snapshot.selectedMarkerIndex >= markers.length) {
+    selectedMarkerIndex = null;
+    selectedMarkerLockedToPlayhead = false;
+  } else {
+    selectedMarkerIndex = snapshot.selectedMarkerIndex;
+    selectedMarkerLockedToPlayhead = snapshot.selectedMarkerLockedToPlayhead;
+    if (selectedMarkerLockedToPlayhead) {
+      setVideoTimeByFrame(markers[selectedMarkerIndex].frame);
+    }
+  }
+
+  renderMarkers();
+  updateTable();
+  syncDirtyStateWithSavedSnapshot();
+  updateUndoRedoButtons();
+}
+
+function commitMarkerChange(mutator) {
+  mutator();
+  renderMarkers();
+  syncDirtyStateWithSavedSnapshot();
+  pushHistorySnapshot();
 }
 
 function setStatus(message, type = "info") {
@@ -77,8 +153,9 @@ function resetVideoSource() {
 function applyChanges() {
   markers.sort((a, b) => a.frame - b.frame);
   updateTable();
-  isDirty = false;
-  saveChangesButton.style.display = "none";
+  savedMarkersSnapshot = serializeMarkers();
+  setDirtyState(false);
+  pushHistorySnapshot();
 }
 
 function generateVideoThumbnail(file) {
@@ -189,6 +266,11 @@ function renderMarkers() {
       el.classList.add("selected");
     }
 
+    const label = document.createElement("span");
+    label.className = "marker-label";
+    label.textContent = String(index + 1);
+    el.appendChild(label);
+
     const clampedFrame = Math.max(0, Math.min(m.frame, totalFrames));
     const x = (clampedFrame / totalFrames) * timelineWidth;
     el.style.left = `${x}px`;
@@ -197,6 +279,8 @@ function renderMarkers() {
     el.addEventListener("click", (event) => {
       event.stopPropagation();
       selectedMarkerIndex = index;
+      selectedMarkerLockedToPlayhead = true;
+      setVideoTimeByFrame(m.frame);
       renderMarkers();
     });
 
@@ -206,11 +290,13 @@ function renderMarkers() {
       const safeX = Math.min(Math.max(relativeX, 0), timelineWidth);
       const newFrame = Math.round((safeX / timelineWidth) * totalFrames);
 
-      m.frame = Math.max(0, Math.min(newFrame, totalFrames));
-      selectedMarkerIndex = index;
-      markAsDirty();
-
-      renderMarkers();
+      commitMarkerChange(() => {
+        m.frame = Math.max(0, Math.min(newFrame, totalFrames));
+        selectedMarkerIndex = index;
+        if (selectedMarkerLockedToPlayhead) {
+          setVideoTimeByFrame(m.frame);
+        }
+      });
     });
 
     markersContainer.appendChild(el);
@@ -307,12 +393,24 @@ timeline.addEventListener("click", (e) => {
   const totalFrames = Math.max(1, timeToFrame(videoPlayer.duration));
   const frame = Math.round((x / timelineWidth) * totalFrames);
 
+  selectedMarkerIndex = null;
+  selectedMarkerLockedToPlayhead = false;
+  renderMarkers();
   videoPlayer.currentTime = frameToTime(frame);
 });
 
 markersContainer.addEventListener("click", () => {
   selectedMarkerIndex = null;
+  selectedMarkerLockedToPlayhead = false;
   renderMarkers();
+});
+
+document.addEventListener("pointerdown", (event) => {
+  if (!event.target.closest(".marker")) {
+    selectedMarkerIndex = null;
+    selectedMarkerLockedToPlayhead = false;
+    renderMarkers();
+  }
 });
 
 window.addEventListener("resize", () => {
@@ -368,6 +466,7 @@ async function analyzeAnimatic() {
     }));
 
     selectedMarkerIndex = null;
+    selectedMarkerLockedToPlayhead = false;
     renderMarkers();
     applyChanges();
 
@@ -376,6 +475,7 @@ async function analyzeAnimatic() {
     setStatus(`Analysis failed: ${error.message}`, "error");
     markers = [];
     selectedMarkerIndex = null;
+    selectedMarkerLockedToPlayhead = false;
     renderMarkers();
     applyChanges();
   } finally {
@@ -398,10 +498,11 @@ deleteMarkerButton.onclick = () => {
     return;
   }
 
-  markers.splice(selectedMarkerIndex, 1);
-  selectedMarkerIndex = null;
-  markAsDirty();
-  renderMarkers();
+  commitMarkerChange(() => {
+    markers.splice(selectedMarkerIndex, 1);
+    selectedMarkerIndex = null;
+    selectedMarkerLockedToPlayhead = false;
+  });
 };
 
 addMarkerButton.onclick = () => {
@@ -410,15 +511,35 @@ addMarkerButton.onclick = () => {
   }
 
   const frame = timeToFrame(videoPlayer.currentTime);
-  markers.push({ frame });
-  selectedMarkerIndex = markers.length - 1;
-  markAsDirty();
-  renderMarkers();
+  commitMarkerChange(() => {
+    markers.push({ frame });
+    selectedMarkerIndex = markers.length - 1;
+    selectedMarkerLockedToPlayhead = true;
+  });
 };
 
 saveChangesButton.onclick = () => {
   applyChanges();
 };
 
+undoChangeButton.onclick = () => {
+  restoreHistorySnapshot(historyIndex - 1);
+};
+
+redoChangeButton.onclick = () => {
+  restoreHistorySnapshot(historyIndex + 1);
+};
+
+playheadBackButton.onclick = () => {
+  const frame = timeToFrame(videoPlayer.currentTime);
+  setVideoTimeByFrame(frame - 1);
+};
+
+playheadForwardButton.onclick = () => {
+  const frame = timeToFrame(videoPlayer.currentTime);
+  setVideoTimeByFrame(frame + 1);
+};
+
 analyzeButton.addEventListener("click", analyzeAnimatic);
 updateTimeline();
+pushHistorySnapshot();
