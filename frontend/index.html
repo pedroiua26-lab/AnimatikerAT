@@ -21,6 +21,10 @@
 
         <label for="videoFile">Animatic File</label>
         <input id="videoFile" type="file" accept="video/*" />
+        <div id="videoPreview" class="video-preview" hidden>
+          <p>Thumbnail (first frame)</p>
+          <img id="videoThumbnail" alt="Preview of the first frame of the selected video" />
+        </div>
 
         <button id="analyzeButton" type="button">Analyze</button>
       </section>
