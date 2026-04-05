@@ -90,9 +90,10 @@ button {
 
 .tick {
   position: absolute;
-  bottom: 0;
+  top: 0;
   width: 1px;
-  background: rgba(255, 255, 255, 0.25);
+  height: 100%;
+  background: rgba(209, 213, 219, 0.45);
   transform: translateX(-50%);
 }
 
