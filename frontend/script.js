@@ -126,6 +126,12 @@ function pushHistorySnapshot() {
   updateUndoRedoButtons();
 }
 
+function resetHistoryWithCurrentState() {
+  history = [];
+  historyIndex = -1;
+  pushHistorySnapshot();
+}
+
 function restoreHistorySnapshot(targetIndex) {
   if (targetIndex < 0 || targetIndex >= history.length) {
     return;
@@ -198,7 +204,6 @@ function applyChanges() {
   updateTable();
   savedMarkersSnapshot = serializeMarkers();
   setDirtyState(false);
-  pushHistorySnapshot();
 }
 
 function generateVideoThumbnail(file) {
@@ -396,6 +401,7 @@ videoInput.addEventListener("change", async () => {
     selectedMarkerIndex = null;
     renderMarkers();
     applyChanges();
+    resetHistoryWithCurrentState();
     return;
   }
 
@@ -408,6 +414,7 @@ videoInput.addEventListener("change", async () => {
   selectedMarkerIndex = null;
   renderMarkers();
   applyChanges();
+  resetHistoryWithCurrentState();
 
   try {
     const thumbnailDataUrl = await generateVideoThumbnail(file);
@@ -454,6 +461,10 @@ markersContainer.addEventListener("click", () => {
 });
 
 document.addEventListener("pointerdown", (event) => {
+  if (!event.target.closest("#timelineContainer")) {
+    return;
+  }
+
   if (!event.target.closest(".marker")) {
     selectedMarkerIndex = null;
     selectedMarkerLockedToPlayhead = false;
@@ -518,6 +529,7 @@ async function analyzeAnimatic() {
     selectedMarkerLockedToPlayhead = false;
     renderMarkers();
     applyChanges();
+    resetHistoryWithCurrentState();
 
     setStatus(`Analysis complete. Detected ${scenes.length} scenes.`, "success");
   } catch (error) {
@@ -527,6 +539,7 @@ async function analyzeAnimatic() {
     selectedMarkerLockedToPlayhead = false;
     renderMarkers();
     applyChanges();
+    resetHistoryWithCurrentState();
   } finally {
     analyzeButton.disabled = false;
   }
@@ -610,4 +623,4 @@ document.addEventListener("keydown", (event) => {
 analyzeButton.addEventListener("click", analyzeAnimatic);
 updateTimeline();
 updateFrameDisplays();
-pushHistorySnapshot();
+resetHistoryWithCurrentState();
