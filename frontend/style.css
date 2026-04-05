@@ -138,12 +138,53 @@ button {
   width: 8px;
 }
 
+#timelineControlsRow,
+#frameDisplays,
 #zoomControls,
 #playheadControls,
 #markerControls {
   margin-top: 0.75rem;
   display: flex;
   gap: 0.5rem;
+}
+
+#timelineControlsRow {
+  align-items: center;
+}
+
+#frameDisplays {
+  margin-top: 0;
+}
+
+.frame-display {
+  background: #111827;
+  border: 1px solid #4b5563;
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+  min-width: 130px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.frame-display .label {
+  font-size: 0.75rem;
+  color: #9ca3af;
+}
+
+.frame-display span:last-child {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+#playheadControls,
+#zoomControls {
+  margin-top: 0;
+}
+
+#zoomControls {
+  margin-left: auto;
 }
 
 #zoomControls button,
