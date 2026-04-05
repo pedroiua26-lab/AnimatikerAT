@@ -10,6 +10,8 @@ const timeline = document.getElementById("timeline");
 const frameTicks = document.getElementById("frameTicks");
 const markersContainer = document.getElementById("markers");
 const playhead = document.getElementById("playhead");
+const currentFrameDisplay = document.getElementById("currentFrameDisplay");
+const totalFramesDisplay = document.getElementById("totalFramesDisplay");
 const zoomInButton = document.getElementById("zoomIn");
 const zoomOutButton = document.getElementById("zoomOut");
 const playheadBackButton = document.getElementById("playheadBack");
@@ -53,6 +55,22 @@ function frameToTime(frame) {
   return frame / FPS;
 }
 
+function getVideoLastFrame() {
+  if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration)) {
+    return 0;
+  }
+
+  return Math.max(0, timeToFrame(videoPlayer.duration) - 1);
+}
+
+function updateFrameDisplays() {
+  const currentFrame = Math.max(0, timeToFrame(videoPlayer.currentTime));
+  const lastFrame = getVideoLastFrame();
+
+  currentFrameDisplay.textContent = String(Math.min(currentFrame, lastFrame));
+  totalFramesDisplay.textContent = String(lastFrame + 1);
+}
+
 function getTimelineWidth() {
   return baseWidth * zoomLevel;
 }
@@ -74,9 +92,10 @@ function setVideoTimeByFrame(frame) {
   if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration)) {
     return;
   }
-  const totalFrames = Math.max(1, timeToFrame(videoPlayer.duration));
+  const totalFrames = getVideoLastFrame();
   const safeFrame = Math.max(0, Math.min(frame, totalFrames));
   videoPlayer.currentTime = frameToTime(safeFrame);
+  updateFrameDisplays();
 }
 
 function updateUndoRedoButtons() {
@@ -125,7 +144,15 @@ function restoreHistorySnapshot(targetIndex) {
 
 function commitMarkerChange(mutator) {
   mutator();
+  const selectedMarker = selectedMarkerIndex !== null ? markers[selectedMarkerIndex] : null;
+  markers.sort((a, b) => a.frame - b.frame);
+  selectedMarkerIndex = selectedMarker ? markers.indexOf(selectedMarker) : null;
+  if (selectedMarkerIndex === -1) {
+    selectedMarkerIndex = null;
+    selectedMarkerLockedToPlayhead = false;
+  }
   renderMarkers();
+  updateTable();
   syncDirtyStateWithSavedSnapshot();
   pushHistorySnapshot();
 }
@@ -148,6 +175,7 @@ function resetVideoSource() {
   videoPlayer.removeAttribute("src");
   videoPlayer.load();
   playhead.style.left = "0px";
+  updateFrameDisplays();
 }
 
 function applyChanges() {
@@ -217,14 +245,16 @@ function generateVideoThumbnail(file) {
 function updatePlayhead() {
   if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration)) {
     playhead.style.left = "0px";
+    updateFrameDisplays();
     return;
   }
 
   const frame = timeToFrame(videoPlayer.currentTime);
   const timelineWidth = timeline.clientWidth;
-  const totalFrames = Math.max(1, timeToFrame(videoPlayer.duration));
+  const totalFrames = Math.max(1, getVideoLastFrame());
   const x = (frame / totalFrames) * timelineWidth;
   playhead.style.left = `${x}px`;
+  updateFrameDisplays();
 }
 
 function renderFrameTicks() {
@@ -234,7 +264,7 @@ function renderFrameTicks() {
     return;
   }
 
-  const totalFrames = Math.max(1, timeToFrame(videoPlayer.duration));
+  const totalFrames = Math.max(1, getVideoLastFrame());
   const width = getTimelineWidth();
   const fragment = document.createDocumentFragment();
 
@@ -257,7 +287,7 @@ function renderMarkers() {
   }
 
   const timelineWidth = timeline.clientWidth;
-  const totalFrames = Math.max(1, timeToFrame(videoPlayer.duration));
+  const totalFrames = Math.max(1, getVideoLastFrame());
 
   markers.forEach((m, index) => {
     const el = document.createElement("div");
@@ -306,15 +336,17 @@ function renderMarkers() {
 function updateTable() {
   tableBody.innerHTML = "";
 
-  if (markers.length < 2) {
+  if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration) || markers.length < 1) {
     resultsTable.hidden = true;
     return;
   }
 
-  for (let i = 0; i < markers.length - 1; i += 1) {
+  const lastVideoFrame = getVideoLastFrame();
+
+  for (let i = 0; i < markers.length; i += 1) {
     const start = markers[i].frame;
-    const nextStart = markers[i + 1].frame;
-    const end = nextStart - 1;
+    const nextStart = i < markers.length - 1 ? markers[i + 1].frame : lastVideoFrame + 1;
+    const end = Math.min(lastVideoFrame, nextStart - 1);
     const duration = Math.max(0, end - start + 1);
 
     const row = document.createElement("tr");
@@ -390,13 +422,14 @@ timeline.addEventListener("click", (e) => {
   const rect = e.currentTarget.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const timelineWidth = rect.width;
-  const totalFrames = Math.max(1, timeToFrame(videoPlayer.duration));
+  const totalFrames = Math.max(1, getVideoLastFrame());
   const frame = Math.round((x / timelineWidth) * totalFrames);
 
   selectedMarkerIndex = null;
   selectedMarkerLockedToPlayhead = false;
   renderMarkers();
   videoPlayer.currentTime = frameToTime(frame);
+  updateFrameDisplays();
 });
 
 markersContainer.addEventListener("click", () => {
@@ -424,6 +457,7 @@ function updateTimeline() {
   renderMarkers();
   renderFrameTicks();
   updatePlayhead();
+  updateFrameDisplays();
 }
 
 async function analyzeAnimatic() {
@@ -540,6 +574,25 @@ playheadForwardButton.onclick = () => {
   setVideoTimeByFrame(frame + 1);
 };
 
+document.addEventListener("keydown", (event) => {
+  if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+    return;
+  }
+
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    const frame = timeToFrame(videoPlayer.currentTime);
+    setVideoTimeByFrame(frame - 1);
+  }
+
+  if (event.key === "ArrowRight") {
+    event.preventDefault();
+    const frame = timeToFrame(videoPlayer.currentTime);
+    setVideoTimeByFrame(frame + 1);
+  }
+});
+
 analyzeButton.addEventListener("click", analyzeAnimatic);
 updateTimeline();
+updateFrameDisplays();
 pushHistorySnapshot();
