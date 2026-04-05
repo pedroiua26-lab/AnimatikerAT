@@ -2,6 +2,8 @@ const DEFAULT_API_BASE = window.ANIMATIC_API_BASE || "http://127.0.0.1:8000";
 
 const apiBaseInput = document.getElementById("apiBaseUrl");
 const videoInput = document.getElementById("videoFile");
+const videoPreview = document.getElementById("videoPreview");
+const videoThumbnail = document.getElementById("videoThumbnail");
 const analyzeButton = document.getElementById("analyzeButton");
 const statusEl = document.getElementById("status");
 const resultsTable = document.getElementById("resultsTable");
@@ -44,6 +46,62 @@ async function parseResponse(response) {
     return { detail: text || "Unexpected server response." };
   }
 }
+
+function resetThumbnail() {
+  videoThumbnail.removeAttribute("src");
+  videoPreview.hidden = true;
+}
+
+function generateVideoThumbnail(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+
+    const cleanup = () => {
+      URL.revokeObjectURL(objectUrl);
+      video.removeAttribute("src");
+      video.load();
+    };
+
+    video.onloadeddata = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL("image/png");
+      cleanup();
+      resolve(dataUrl);
+    };
+
+    video.onerror = () => {
+      cleanup();
+      reject(new Error("Could not read video preview."));
+    };
+
+    video.src = objectUrl;
+  });
+}
+
+videoInput.addEventListener("change", async () => {
+  const file = videoInput.files[0];
+
+  if (!file) {
+    resetThumbnail();
+    return;
+  }
+
+  try {
+    const thumbnailDataUrl = await generateVideoThumbnail(file);
+    videoThumbnail.src = thumbnailDataUrl;
+    videoPreview.hidden = false;
+  } catch {
+    resetThumbnail();
+    setStatus("Video selected, but preview thumbnail could not be generated.", "info");
+  }
+});
 
 async function analyzeAnimatic() {
   const file = videoInput.files[0];

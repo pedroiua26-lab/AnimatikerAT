@@ -43,6 +43,25 @@ button {
   box-sizing: border-box;
 }
 
+.video-preview {
+  margin-top: 0.75rem;
+}
+
+.video-preview p {
+  margin: 0 0 0.4rem;
+  font-size: 0.95rem;
+  color: #d1d5db;
+}
+
+.video-preview img {
+  width: 100%;
+  max-width: 420px;
+  display: block;
+  border-radius: 8px;
+  border: 1px solid #4b5563;
+  background: #111827;
+}
+
 button {
   margin-top: 1rem;
   background: #2563eb;
