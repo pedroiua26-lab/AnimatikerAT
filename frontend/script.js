@@ -79,6 +79,16 @@ function serializeMarkers(markerList = markers) {
   return JSON.stringify(markerList.map((marker) => ({ frame: marker.frame })));
 }
 
+function normalizeMarkers() {
+  const lastFrame = getVideoLastFrame();
+  markers.forEach((marker) => {
+    const parsedFrame = Number(marker.frame);
+    const safeFrame = Number.isFinite(parsedFrame) ? parsedFrame : 0;
+    marker.frame = Math.max(0, Math.min(Math.round(safeFrame), lastFrame));
+  });
+  markers.sort((a, b) => a.frame - b.frame);
+}
+
 function setDirtyState(dirty) {
   isDirty = dirty;
   saveChangesButton.style.display = dirty ? "inline-block" : "none";
@@ -145,7 +155,7 @@ function restoreHistorySnapshot(targetIndex) {
 function commitMarkerChange(mutator) {
   mutator();
   const selectedMarker = selectedMarkerIndex !== null ? markers[selectedMarkerIndex] : null;
-  markers.sort((a, b) => a.frame - b.frame);
+  normalizeMarkers();
   selectedMarkerIndex = selectedMarker ? markers.indexOf(selectedMarker) : null;
   if (selectedMarkerIndex === -1) {
     selectedMarkerIndex = null;
@@ -179,7 +189,12 @@ function resetVideoSource() {
 }
 
 function applyChanges() {
-  markers.sort((a, b) => a.frame - b.frame);
+  normalizeMarkers();
+  if (selectedMarkerIndex !== null && selectedMarkerIndex >= markers.length) {
+    selectedMarkerIndex = null;
+    selectedMarkerLockedToPlayhead = false;
+  }
+  renderMarkers();
   updateTable();
   savedMarkersSnapshot = serializeMarkers();
   setDirtyState(false);
@@ -544,7 +559,7 @@ addMarkerButton.onclick = () => {
     return;
   }
 
-  const frame = timeToFrame(videoPlayer.currentTime);
+  const frame = Math.max(0, Math.min(timeToFrame(videoPlayer.currentTime), getVideoLastFrame()));
   commitMarkerChange(() => {
     markers.push({ frame });
     selectedMarkerIndex = markers.length - 1;

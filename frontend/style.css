@@ -149,11 +149,17 @@ button {
 }
 
 #timelineControlsRow {
-  align-items: center;
+  align-items: stretch;
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
 }
 
 #frameDisplays {
   margin-top: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .frame-display {
@@ -181,20 +187,26 @@ button {
 #playheadControls,
 #zoomControls {
   margin-top: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 #zoomControls {
-  margin-left: auto;
+  margin-left: 0;
 }
 
 #zoomControls button,
 #playheadControls button,
 #markerControls button {
   margin-top: 0;
+  width: 100%;
 }
 
-#zoomControls button {
-  width: 60px;
+@media (max-width: 680px) {
+  #timelineControlsRow {
+    grid-template-columns: 1fr;
+  }
 }
 
 button {
