@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Animatic Analyzer</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Animatic Analyzer</h1>
+      <p>Upload an animatic video and detect shot boundaries automatically.</p>
+
+      <section class="panel">
+        <label for="apiBaseUrl">Backend API URL</label>
+        <input
+          id="apiBaseUrl"
+          type="url"
+          placeholder="https://your-render-service.onrender.com"
+        />
+
+        <label for="videoFile">Animatic File</label>
+        <input id="videoFile" type="file" accept="video/*" />
+
+        <button id="analyzeButton" type="button">Analyze</button>
+      </section>
+
+      <section id="status" class="status"></section>
+
+      <section class="panel">
+        <h2>Detected Scenes</h2>
+        <table id="resultsTable" hidden>
+          <thead>
+            <tr>
+              <th>Scene #</th>
+              <th>Start Frame</th>
+              <th>End Frame</th>
+              <th>Duration (Frames)</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>
