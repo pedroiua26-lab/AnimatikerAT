@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.venv/
+.DS_Store
+uploads/*
+!uploads/.gitkeep
+outputs/*
+!outputs/.gitkeep
