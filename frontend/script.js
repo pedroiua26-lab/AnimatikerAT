@@ -1,13 +1,21 @@
 const DEFAULT_API_BASE = window.ANIMATIC_API_BASE || "http://127.0.0.1:8000";
+const FPS = 24;
 
 const apiBaseInput = document.getElementById("apiBaseUrl");
 const videoInput = document.getElementById("videoFile");
 const videoPreview = document.getElementById("videoPreview");
-const videoThumbnail = document.getElementById("videoThumbnail");
+const videoThumbnail = document.getElementById("thumbnail") || document.getElementById("videoThumbnail");
+const videoPlayer = document.getElementById("videoPlayer");
+const timeline = document.getElementById("timeline");
+const markersContainer = document.getElementById("markers");
+const playhead = document.getElementById("playhead");
 const analyzeButton = document.getElementById("analyzeButton");
 const statusEl = document.getElementById("status");
 const resultsTable = document.getElementById("resultsTable");
 const tableBody = resultsTable.querySelector("tbody");
+
+let markers = [];
+let currentVideoUrl = null;
 
 const storedApiBase = localStorage.getItem("animaticApiBase");
 apiBaseInput.value = storedApiBase || DEFAULT_API_BASE;
@@ -16,26 +24,164 @@ apiBaseInput.addEventListener("change", () => {
   localStorage.setItem("animaticApiBase", apiBaseInput.value.trim());
 });
 
+function timeToFrame(time) {
+  return Math.round(time * FPS);
+}
+
+function frameToTime(frame) {
+  return frame / FPS;
+}
+
 function setStatus(message, type = "info") {
   statusEl.textContent = message;
   statusEl.className = `status ${type}`;
 }
 
-function renderScenes(scenes) {
+function resetThumbnail() {
+  videoThumbnail.removeAttribute("src");
+  videoPreview.hidden = true;
+}
+
+function resetVideoSource() {
+  if (currentVideoUrl) {
+    URL.revokeObjectURL(currentVideoUrl);
+    currentVideoUrl = null;
+  }
+  videoPlayer.removeAttribute("src");
+  videoPlayer.load();
+  playhead.style.left = "0px";
+}
+
+function generateVideoThumbnail(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const hiddenVideo = document.createElement("video");
+    hiddenVideo.preload = "metadata";
+    hiddenVideo.muted = true;
+    hiddenVideo.playsInline = true;
+    hiddenVideo.style.display = "none";
+    document.body.appendChild(hiddenVideo);
+
+    let seekedHandled = false;
+
+    const cleanup = () => {
+      URL.revokeObjectURL(objectUrl);
+      hiddenVideo.pause();
+      hiddenVideo.removeAttribute("src");
+      hiddenVideo.load();
+      hiddenVideo.remove();
+    };
+
+    hiddenVideo.addEventListener("loadeddata", () => {
+      hiddenVideo.currentTime = 1;
+    });
+
+    hiddenVideo.addEventListener("seeked", () => {
+      if (seekedHandled) {
+        return;
+      }
+      seekedHandled = true;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = hiddenVideo.videoWidth;
+      canvas.height = hiddenVideo.videoHeight;
+      const context = canvas.getContext("2d");
+
+      if (!context || !canvas.width || !canvas.height) {
+        cleanup();
+        reject(new Error("Could not render preview frame."));
+        return;
+      }
+
+      context.drawImage(hiddenVideo, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL("image/png");
+      cleanup();
+      resolve(dataUrl);
+    });
+
+    hiddenVideo.addEventListener("error", () => {
+      cleanup();
+      reject(new Error("Could not read video preview."));
+    });
+
+    hiddenVideo.src = objectUrl;
+  });
+}
+
+function updatePlayhead() {
+  if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration)) {
+    playhead.style.left = "0px";
+    return;
+  }
+
+  const frame = timeToFrame(videoPlayer.currentTime);
+  const timelineWidth = timeline.clientWidth;
+  const totalFrames = Math.max(1, timeToFrame(videoPlayer.duration));
+  const x = (frame / totalFrames) * timelineWidth;
+  playhead.style.left = `${x}px`;
+}
+
+function renderMarkers() {
+  markersContainer.innerHTML = "";
+
+  if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration)) {
+    return;
+  }
+
+  const timelineWidth = timeline.clientWidth;
+  const totalFrames = Math.max(1, timeToFrame(videoPlayer.duration));
+
+  markers.forEach((m) => {
+    const el = document.createElement("div");
+    el.className = "marker";
+
+    const clampedFrame = Math.max(0, Math.min(m.frame, totalFrames));
+    const x = (clampedFrame / totalFrames) * timelineWidth;
+    el.style.left = `${x}px`;
+
+    el.draggable = true;
+
+    el.addEventListener("dragend", (e) => {
+      const rect = markersContainer.getBoundingClientRect();
+      const relativeX = e.clientX - rect.left;
+      const safeX = Math.min(Math.max(relativeX, 0), timelineWidth);
+      const newFrame = Math.round((safeX / timelineWidth) * totalFrames);
+
+      m.frame = Math.max(0, Math.min(newFrame, totalFrames));
+
+      renderMarkers();
+      updateTable();
+    });
+
+    markersContainer.appendChild(el);
+  });
+}
+
+function updateTable() {
+  markers.sort((a, b) => a.frame - b.frame);
   tableBody.innerHTML = "";
 
-  scenes.forEach((sceneData) => {
+  if (markers.length < 2) {
+    resultsTable.hidden = true;
+    return;
+  }
+
+  for (let i = 0; i < markers.length - 1; i += 1) {
+    const start = markers[i].frame;
+    const end = markers[i + 1].frame;
+    const duration = end - start;
+
     const row = document.createElement("tr");
     row.innerHTML = `
-      <td>${sceneData.scene}</td>
-      <td>${sceneData.start_frame}</td>
-      <td>${sceneData.end_frame}</td>
-      <td>${sceneData.duration_frames}</td>
+      <td>${i + 1}</td>
+      <td>${start}</td>
+      <td>${end}</td>
+      <td>${duration}</td>
     `;
     tableBody.appendChild(row);
-  });
+  }
 
-  resultsTable.hidden = scenes.length === 0;
+  resultsTable.hidden = false;
 }
 
 async function parseResponse(response) {
@@ -47,51 +193,26 @@ async function parseResponse(response) {
   }
 }
 
-function resetThumbnail() {
-  videoThumbnail.removeAttribute("src");
-  videoPreview.hidden = true;
-}
-
-function generateVideoThumbnail(file) {
-  return new Promise((resolve, reject) => {
-    const objectUrl = URL.createObjectURL(file);
-    const video = document.createElement("video");
-    video.preload = "metadata";
-    video.muted = true;
-    video.playsInline = true;
-
-    const cleanup = () => {
-      URL.revokeObjectURL(objectUrl);
-      video.removeAttribute("src");
-      video.load();
-    };
-
-    video.onloadeddata = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL("image/png");
-      cleanup();
-      resolve(dataUrl);
-    };
-
-    video.onerror = () => {
-      cleanup();
-      reject(new Error("Could not read video preview."));
-    };
-
-    video.src = objectUrl;
-  });
-}
-
 videoInput.addEventListener("change", async () => {
   const file = videoInput.files[0];
 
   if (!file) {
     resetThumbnail();
+    resetVideoSource();
+    markers = [];
+    renderMarkers();
+    updateTable();
     return;
   }
+
+  resetVideoSource();
+  currentVideoUrl = URL.createObjectURL(file);
+  videoPlayer.src = currentVideoUrl;
+  videoPlayer.load();
+
+  markers = [];
+  renderMarkers();
+  updateTable();
 
   try {
     const thumbnailDataUrl = await generateVideoThumbnail(file);
@@ -101,6 +222,34 @@ videoInput.addEventListener("change", async () => {
     resetThumbnail();
     setStatus("Video selected, but preview thumbnail could not be generated.", "info");
   }
+});
+
+videoPlayer.addEventListener("loadedmetadata", () => {
+  renderMarkers();
+  updatePlayhead();
+});
+
+videoPlayer.addEventListener("timeupdate", () => {
+  updatePlayhead();
+});
+
+timeline.addEventListener("click", (e) => {
+  if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration)) {
+    return;
+  }
+
+  const rect = e.currentTarget.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const timelineWidth = rect.width;
+  const totalFrames = Math.max(1, timeToFrame(videoPlayer.duration));
+  const frame = Math.round((x / timelineWidth) * totalFrames);
+
+  videoPlayer.currentTime = frameToTime(frame);
+});
+
+window.addEventListener("resize", () => {
+  renderMarkers();
+  updatePlayhead();
 });
 
 async function analyzeAnimatic() {
@@ -138,10 +287,18 @@ async function analyzeAnimatic() {
     }
 
     const scenes = Array.isArray(payload) ? payload : [];
-    renderScenes(scenes);
+    markers = scenes.map((scene) => ({
+      frame: Number(scene.start_frame) || 0,
+    }));
+
+    renderMarkers();
+    updateTable();
+
     setStatus(`Analysis complete. Detected ${scenes.length} scenes.`, "success");
   } catch (error) {
     setStatus(`Analysis failed: ${error.message}`, "error");
+    markers = [];
+    renderMarkers();
     resultsTable.hidden = true;
   } finally {
     analyzeButton.disabled = false;
