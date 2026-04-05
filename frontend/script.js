@@ -7,15 +7,28 @@ const videoPreview = document.getElementById("videoPreview");
 const videoThumbnail = document.getElementById("thumbnail") || document.getElementById("videoThumbnail");
 const videoPlayer = document.getElementById("videoPlayer");
 const timeline = document.getElementById("timeline");
+const frameTicks = document.getElementById("frameTicks");
 const markersContainer = document.getElementById("markers");
 const playhead = document.getElementById("playhead");
+const zoomInButton = document.getElementById("zoomIn");
+const zoomOutButton = document.getElementById("zoomOut");
+const addMarkerButton = document.getElementById("addMarker");
+const deleteMarkerButton = document.getElementById("deleteMarker");
+const saveChangesButton = document.getElementById("saveChanges");
 const analyzeButton = document.getElementById("analyzeButton");
 const statusEl = document.getElementById("status");
 const resultsTable = document.getElementById("resultsTable");
 const tableBody = resultsTable.querySelector("tbody");
 
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 20;
+const baseWidth = 1000;
+
 let markers = [];
 let currentVideoUrl = null;
+let selectedMarkerIndex = null;
+let isDirty = false;
+let zoomLevel = 1;
 
 const storedApiBase = localStorage.getItem("animaticApiBase");
 apiBaseInput.value = storedApiBase || DEFAULT_API_BASE;
@@ -30,6 +43,15 @@ function timeToFrame(time) {
 
 function frameToTime(frame) {
   return frame / FPS;
+}
+
+function getTimelineWidth() {
+  return baseWidth * zoomLevel;
+}
+
+function markAsDirty() {
+  isDirty = true;
+  saveChangesButton.style.display = "inline-block";
 }
 
 function setStatus(message, type = "info") {
@@ -50,6 +72,13 @@ function resetVideoSource() {
   videoPlayer.removeAttribute("src");
   videoPlayer.load();
   playhead.style.left = "0px";
+}
+
+function applyChanges() {
+  markers.sort((a, b) => a.frame - b.frame);
+  updateTable();
+  isDirty = false;
+  saveChangesButton.style.display = "none";
 }
 
 function generateVideoThumbnail(file) {
@@ -121,6 +150,37 @@ function updatePlayhead() {
   playhead.style.left = `${x}px`;
 }
 
+function renderFrameTicks() {
+  frameTicks.innerHTML = "";
+
+  if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration)) {
+    return;
+  }
+
+  if (zoomLevel < 8) {
+    return;
+  }
+
+  const totalFrames = Math.max(1, timeToFrame(videoPlayer.duration));
+  const width = getTimelineWidth();
+
+  for (let i = 0; i <= totalFrames; i += 1) {
+    const tick = document.createElement("div");
+    tick.className = "tick";
+
+    const x = (i / totalFrames) * width;
+    tick.style.left = `${x}px`;
+
+    if (zoomLevel >= 15) {
+      tick.style.height = "100%";
+    } else {
+      tick.style.height = i % 5 === 0 ? "50%" : "20%";
+    }
+
+    frameTicks.appendChild(tick);
+  }
+}
+
 function renderMarkers() {
   markersContainer.innerHTML = "";
 
@@ -131,15 +191,23 @@ function renderMarkers() {
   const timelineWidth = timeline.clientWidth;
   const totalFrames = Math.max(1, timeToFrame(videoPlayer.duration));
 
-  markers.forEach((m) => {
+  markers.forEach((m, index) => {
     const el = document.createElement("div");
     el.className = "marker";
+    if (selectedMarkerIndex === index) {
+      el.classList.add("selected");
+    }
 
     const clampedFrame = Math.max(0, Math.min(m.frame, totalFrames));
     const x = (clampedFrame / totalFrames) * timelineWidth;
     el.style.left = `${x}px`;
 
     el.draggable = true;
+    el.addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectedMarkerIndex = index;
+      renderMarkers();
+    });
 
     el.addEventListener("dragend", (e) => {
       const rect = markersContainer.getBoundingClientRect();
@@ -148,9 +216,10 @@ function renderMarkers() {
       const newFrame = Math.round((safeX / timelineWidth) * totalFrames);
 
       m.frame = Math.max(0, Math.min(newFrame, totalFrames));
+      selectedMarkerIndex = index;
+      markAsDirty();
 
       renderMarkers();
-      updateTable();
     });
 
     markersContainer.appendChild(el);
@@ -158,7 +227,6 @@ function renderMarkers() {
 }
 
 function updateTable() {
-  markers.sort((a, b) => a.frame - b.frame);
   tableBody.innerHTML = "";
 
   if (markers.length < 2) {
@@ -200,8 +268,9 @@ videoInput.addEventListener("change", async () => {
     resetThumbnail();
     resetVideoSource();
     markers = [];
+    selectedMarkerIndex = null;
     renderMarkers();
-    updateTable();
+    applyChanges();
     return;
   }
 
@@ -211,8 +280,9 @@ videoInput.addEventListener("change", async () => {
   videoPlayer.load();
 
   markers = [];
+  selectedMarkerIndex = null;
   renderMarkers();
-  updateTable();
+  applyChanges();
 
   try {
     const thumbnailDataUrl = await generateVideoThumbnail(file);
@@ -225,6 +295,7 @@ videoInput.addEventListener("change", async () => {
 });
 
 videoPlayer.addEventListener("loadedmetadata", () => {
+  updateTimeline();
   renderMarkers();
   updatePlayhead();
 });
@@ -247,10 +318,23 @@ timeline.addEventListener("click", (e) => {
   videoPlayer.currentTime = frameToTime(frame);
 });
 
+markersContainer.addEventListener("click", () => {
+  selectedMarkerIndex = null;
+  renderMarkers();
+});
+
 window.addEventListener("resize", () => {
+  updateTimeline();
   renderMarkers();
   updatePlayhead();
 });
+
+function updateTimeline() {
+  timeline.style.width = `${getTimelineWidth()}px`;
+  renderMarkers();
+  renderFrameTicks();
+  updatePlayhead();
+}
 
 async function analyzeAnimatic() {
   const file = videoInput.files[0];
@@ -291,18 +375,58 @@ async function analyzeAnimatic() {
       frame: Number(scene.start_frame) || 0,
     }));
 
+    selectedMarkerIndex = null;
     renderMarkers();
-    updateTable();
+    applyChanges();
 
     setStatus(`Analysis complete. Detected ${scenes.length} scenes.`, "success");
   } catch (error) {
     setStatus(`Analysis failed: ${error.message}`, "error");
     markers = [];
+    selectedMarkerIndex = null;
     renderMarkers();
-    resultsTable.hidden = true;
+    applyChanges();
   } finally {
     analyzeButton.disabled = false;
   }
 }
 
+zoomInButton.onclick = () => {
+  zoomLevel = Math.min(ZOOM_MAX, zoomLevel + 1);
+  updateTimeline();
+};
+
+zoomOutButton.onclick = () => {
+  zoomLevel = Math.max(ZOOM_MIN, zoomLevel - 1);
+  updateTimeline();
+};
+
+deleteMarkerButton.onclick = () => {
+  if (selectedMarkerIndex === null) {
+    return;
+  }
+
+  markers.splice(selectedMarkerIndex, 1);
+  selectedMarkerIndex = null;
+  markAsDirty();
+  renderMarkers();
+};
+
+addMarkerButton.onclick = () => {
+  if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration)) {
+    return;
+  }
+
+  const frame = timeToFrame(videoPlayer.currentTime);
+  markers.push({ frame });
+  selectedMarkerIndex = markers.length - 1;
+  markAsDirty();
+  renderMarkers();
+};
+
+saveChangesButton.onclick = () => {
+  applyChanges();
+};
+
 analyzeButton.addEventListener("click", analyzeAnimatic);
+updateTimeline();

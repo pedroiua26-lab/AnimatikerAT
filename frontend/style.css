@@ -82,6 +82,20 @@ button {
   min-width: 1000px;
 }
 
+#frameTicks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.tick {
+  position: absolute;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.25);
+  transform: translateX(-50%);
+}
+
 #playhead {
   position: absolute;
   width: 2px;
@@ -102,6 +116,28 @@ button {
   background: yellow;
   cursor: pointer;
   transform: translateX(-50%);
+  transition: background-color 0.12s ease, width 0.12s ease;
+}
+
+.marker.selected {
+  background: red;
+  width: 8px;
+}
+
+#zoomControls,
+#markerControls {
+  margin-top: 0.75rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+#zoomControls button,
+#markerControls button {
+  margin-top: 0;
+}
+
+#zoomControls button {
+  width: 60px;
 }
 
 button {
