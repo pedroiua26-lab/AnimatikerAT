@@ -157,28 +157,19 @@ function renderFrameTicks() {
     return;
   }
 
-  if (zoomLevel < 8) {
-    return;
-  }
-
   const totalFrames = Math.max(1, timeToFrame(videoPlayer.duration));
   const width = getTimelineWidth();
+  const fragment = document.createDocumentFragment();
 
   for (let i = 0; i <= totalFrames; i += 1) {
     const tick = document.createElement("div");
     tick.className = "tick";
-
     const x = (i / totalFrames) * width;
     tick.style.left = `${x}px`;
-
-    if (zoomLevel >= 15) {
-      tick.style.height = "100%";
-    } else {
-      tick.style.height = i % 5 === 0 ? "50%" : "20%";
-    }
-
-    frameTicks.appendChild(tick);
+    fragment.appendChild(tick);
   }
+
+  frameTicks.appendChild(fragment);
 }
 
 function renderMarkers() {
@@ -236,8 +227,9 @@ function updateTable() {
 
   for (let i = 0; i < markers.length - 1; i += 1) {
     const start = markers[i].frame;
-    const end = markers[i + 1].frame;
-    const duration = end - start;
+    const nextStart = markers[i + 1].frame;
+    const end = nextStart - 1;
+    const duration = Math.max(0, end - start + 1);
 
     const row = document.createElement("tr");
     row.innerHTML = `
