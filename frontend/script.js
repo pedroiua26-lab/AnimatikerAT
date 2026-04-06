@@ -25,6 +25,9 @@ const analyzeButton = document.getElementById("analyzeButton");
 const statusEl = document.getElementById("status");
 const resultsTable = document.getElementById("resultsTable");
 const tableBody = resultsTable.querySelector("tbody");
+const exportControls = document.getElementById("exportControls");
+const exportPdfButton = document.getElementById("exportPdfButton");
+const exportXlsButton = document.getElementById("exportXlsButton");
 
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 20;
@@ -91,7 +94,7 @@ function normalizeMarkers() {
 
 function setDirtyState(dirty) {
   isDirty = dirty;
-  saveChangesButton.style.display = dirty ? "inline-block" : "none";
+  saveChangesButton.disabled = !dirty;
 }
 
 function syncDirtyStateWithSavedSnapshot() {
@@ -358,6 +361,7 @@ function updateTable() {
 
   if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration) || markers.length < 1) {
     resultsTable.hidden = true;
+    exportControls.hidden = true;
     return;
   }
 
@@ -380,6 +384,149 @@ function updateTable() {
   }
 
   resultsTable.hidden = false;
+  exportControls.hidden = false;
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function getRenderedTableRows() {
+  const rows = [];
+  const headers = Array.from(resultsTable.querySelectorAll("thead th")).map((header) =>
+    header.textContent.trim(),
+  );
+
+  if (headers.length) {
+    rows.push(headers);
+  }
+
+  Array.from(tableBody.querySelectorAll("tr")).forEach((row) => {
+    const values = Array.from(row.querySelectorAll("td")).map((cell) => cell.textContent.trim());
+    rows.push(values);
+  });
+
+  return rows;
+}
+
+function exportVisibleTableToXls() {
+  const rows = getRenderedTableRows();
+  if (rows.length <= 1) {
+    setStatus("There is no table data to export.", "info");
+    return;
+  }
+
+  const htmlRows = rows
+    .map(
+      (row, index) =>
+        `<tr>${row
+          .map((cell) => `<${index === 0 ? "th" : "td"}>${cell}</${index === 0 ? "th" : "td"}>`)
+          .join("")}</tr>`,
+    )
+    .join("");
+  const workbookHtml = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office"
+          xmlns:x="urn:schemas-microsoft-com:office:excel"
+          xmlns="http://www.w3.org/TR/REC-html40">
+      <head><meta charset="UTF-8"></head>
+      <body><table>${htmlRows}</table></body>
+    </html>
+  `;
+
+  downloadBlob(
+    new Blob([workbookHtml], { type: "application/vnd.ms-excel;charset=utf-8;" }),
+    "detected-scenes.xls",
+  );
+}
+
+function escapePdfText(value) {
+  return String(value).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+
+function exportVisibleTableToPdf() {
+  const rows = getRenderedTableRows();
+  if (rows.length <= 1) {
+    setStatus("There is no table data to export.", "info");
+    return;
+  }
+
+  const lines = rows.map((row) => row.join(" | "));
+  const maxLinesPerPage = 50;
+  const chunks = [];
+
+  for (let index = 0; index < lines.length; index += maxLinesPerPage) {
+    chunks.push(lines.slice(index, index + maxLinesPerPage));
+  }
+
+  const pdfParts = [];
+  const objectOffsets = [];
+  const writeObject = (id, content) => {
+    objectOffsets[id] = pdfParts.join("").length;
+    pdfParts.push(`${id} 0 obj\n${content}\nendobj\n`);
+  };
+
+  pdfParts.push("%PDF-1.4\n");
+
+  const pageObjectIds = [];
+  const firstPageObjectId = 3;
+  const objectsPerPage = 2;
+
+  chunks.forEach((_, pageIndex) => {
+    const pageId = firstPageObjectId + pageIndex * objectsPerPage;
+    pageObjectIds.push(pageId);
+  });
+
+  writeObject(1, "<< /Type /Catalog /Pages 2 0 R >>");
+  writeObject(
+    2,
+    `<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${
+      pageObjectIds.length
+    } >>`,
+  );
+
+  chunks.forEach((pageLines, pageIndex) => {
+    const pageId = pageObjectIds[pageIndex];
+    const contentId = pageId + 1;
+    const textCommands = pageLines
+      .map((line, index) => {
+        const y = 800 - index * 14;
+        return `BT /F1 10 Tf 40 ${y} Td (${escapePdfText(line)}) Tj ET`;
+      })
+      .join("\n");
+    const stream = `${textCommands}\n`;
+
+    writeObject(
+      pageId,
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${
+        pageObjectIds[pageObjectIds.length - 1] + 2
+      } 0 R >> >> /Contents ${contentId} 0 R >>`,
+    );
+    writeObject(contentId, `<< /Length ${stream.length} >>\nstream\n${stream}endstream`);
+  });
+
+  const fontObjectId = pageObjectIds[pageObjectIds.length - 1] + 2;
+  writeObject(fontObjectId, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+
+  const xrefOffset = pdfParts.join("").length;
+  const totalObjects = fontObjectId;
+  let xref = `xref\n0 ${totalObjects + 1}\n0000000000 65535 f \n`;
+  for (let id = 1; id <= totalObjects; id += 1) {
+    const offset = objectOffsets[id] || 0;
+    xref += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  }
+
+  pdfParts.push(xref);
+  pdfParts.push(`trailer\n<< /Size ${totalObjects + 1} /Root 1 0 R >>\n`);
+  pdfParts.push(`startxref\n${xrefOffset}\n%%EOF`);
+
+  downloadBlob(new Blob([pdfParts.join("")], { type: "application/pdf" }), "detected-scenes.pdf");
 }
 
 async function parseResponse(response) {
@@ -590,6 +737,14 @@ undoChangeButton.onclick = () => {
 
 redoChangeButton.onclick = () => {
   restoreHistorySnapshot(historyIndex + 1);
+};
+
+exportPdfButton.onclick = () => {
+  exportVisibleTableToPdf();
+};
+
+exportXlsButton.onclick = () => {
+  exportVisibleTableToXls();
 };
 
 playheadBackButton.onclick = () => {
