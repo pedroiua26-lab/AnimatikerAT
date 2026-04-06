@@ -388,6 +388,7 @@ function updateTable() {
       <td>${duration}</td>
       <td>${formatFrameAsTimecode(start)}</td>
       <td>${formatFrameAsTimecode(end)}</td>
+      <td>${formatFrameAsTimecode(duration)}</td>
     `;
     tableBody.appendChild(row);
   }
