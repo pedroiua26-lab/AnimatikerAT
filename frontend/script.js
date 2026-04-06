@@ -3,9 +3,8 @@ const FPS = 24;
 
 const apiBaseInput = document.getElementById("apiBaseUrl");
 const videoInput = document.getElementById("videoFile");
-const videoPreview = document.getElementById("videoPreview");
-const videoThumbnail = document.getElementById("thumbnail") || document.getElementById("videoThumbnail");
 const videoPlayer = document.getElementById("videoPlayer");
+const timelineContainer = document.getElementById("timelineContainer");
 const timeline = document.getElementById("timeline");
 const frameTicks = document.getElementById("frameTicks");
 const markersContainer = document.getElementById("markers");
@@ -29,6 +28,7 @@ const tableBody = resultsTable.querySelector("tbody");
 const exportControls = document.getElementById("exportControls");
 const exportPdfButton = document.getElementById("exportPdfButton");
 const exportXlsButton = document.getElementById("exportXlsButton");
+const exportXlsxButton = document.getElementById("exportXlsxButton");
 
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 20;
@@ -209,11 +209,6 @@ function setStatus(message, type = "info") {
   statusEl.className = `status ${type}`;
 }
 
-function resetThumbnail() {
-  videoThumbnail.removeAttribute("src");
-  videoPreview.hidden = true;
-}
-
 function resetVideoSource() {
   if (currentVideoUrl) {
     URL.revokeObjectURL(currentVideoUrl);
@@ -275,62 +270,6 @@ function applyChanges() {
   updateTable();
   savedMarkersSnapshot = serializeMarkers();
   setDirtyState(false);
-}
-
-function generateVideoThumbnail(file) {
-  return new Promise((resolve, reject) => {
-    const objectUrl = URL.createObjectURL(file);
-    const hiddenVideo = document.createElement("video");
-    hiddenVideo.preload = "metadata";
-    hiddenVideo.muted = true;
-    hiddenVideo.playsInline = true;
-    hiddenVideo.style.display = "none";
-    document.body.appendChild(hiddenVideo);
-
-    let seekedHandled = false;
-
-    const cleanup = () => {
-      URL.revokeObjectURL(objectUrl);
-      hiddenVideo.pause();
-      hiddenVideo.removeAttribute("src");
-      hiddenVideo.load();
-      hiddenVideo.remove();
-    };
-
-    hiddenVideo.addEventListener("loadeddata", () => {
-      hiddenVideo.currentTime = 1;
-    });
-
-    hiddenVideo.addEventListener("seeked", () => {
-      if (seekedHandled) {
-        return;
-      }
-      seekedHandled = true;
-
-      const canvas = document.createElement("canvas");
-      canvas.width = hiddenVideo.videoWidth;
-      canvas.height = hiddenVideo.videoHeight;
-      const context = canvas.getContext("2d");
-
-      if (!context || !canvas.width || !canvas.height) {
-        cleanup();
-        reject(new Error("Could not render preview frame."));
-        return;
-      }
-
-      context.drawImage(hiddenVideo, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL("image/png");
-      cleanup();
-      resolve(dataUrl);
-    });
-
-    hiddenVideo.addEventListener("error", () => {
-      cleanup();
-      reject(new Error("Could not read video preview."));
-    });
-
-    hiddenVideo.src = objectUrl;
-  });
 }
 
 function updatePlayhead() {
@@ -447,12 +386,28 @@ function updateTable() {
       <td>${start}</td>
       <td>${end}</td>
       <td>${duration}</td>
+      <td>${formatFrameAsTimecode(start)}</td>
+      <td>${formatFrameAsTimecode(end)}</td>
     `;
     tableBody.appendChild(row);
   }
 
   resultsTable.hidden = false;
   exportControls.hidden = false;
+}
+
+function formatFrameAsTimecode(frameValue) {
+  const safeFrame = Math.max(0, Math.round(Number(frameValue) || 0));
+  const timecodeFps = Math.max(1, Math.round(detectedVideoFps || FPS));
+  const totalSeconds = Math.floor(safeFrame / timecodeFps);
+  const framesRemainder = safeFrame % timecodeFps;
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  return [hours, minutes, seconds, framesRemainder]
+    .map((value) => String(value).padStart(2, "0"))
+    .join(":");
 }
 
 function downloadBlob(blob, filename) {
@@ -511,6 +466,38 @@ function exportVisibleTableToXls() {
   downloadBlob(
     new Blob([workbookHtml], { type: "application/vnd.ms-excel;charset=utf-8;" }),
     "detected-scenes.xls",
+  );
+}
+
+function exportVisibleTableToXlsx() {
+  const rows = getRenderedTableRows();
+  if (rows.length <= 1) {
+    setStatus("There is no table data to export.", "info");
+    return;
+  }
+
+  const htmlRows = rows
+    .map(
+      (row, index) =>
+        `<tr>${row
+          .map((cell) => `<${index === 0 ? "th" : "td"}>${cell}</${index === 0 ? "th" : "td"}>`)
+          .join("")}</tr>`,
+    )
+    .join("");
+  const workbookHtml = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office"
+          xmlns:x="urn:schemas-microsoft-com:office:excel"
+          xmlns="http://www.w3.org/TR/REC-html40">
+      <head><meta charset="UTF-8"></head>
+      <body><table>${htmlRows}</table></body>
+    </html>
+  `;
+
+  downloadBlob(
+    new Blob([workbookHtml], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8;",
+    }),
+    "detected-scenes.xlsx",
   );
 }
 
@@ -606,11 +593,10 @@ async function parseResponse(response) {
   }
 }
 
-videoInput.addEventListener("change", async () => {
+videoInput.addEventListener("change", () => {
   const file = videoInput.files[0];
 
   if (!file) {
-    resetThumbnail();
     resetVideoSource();
     markers = [];
     selectedMarkerIndex = null;
@@ -630,15 +616,6 @@ videoInput.addEventListener("change", async () => {
   renderMarkers();
   applyChanges();
   resetHistoryWithCurrentState();
-
-  try {
-    const thumbnailDataUrl = await generateVideoThumbnail(file);
-    videoThumbnail.src = thumbnailDataUrl;
-    videoPreview.hidden = false;
-  } catch {
-    resetThumbnail();
-    setStatus("Video selected, but preview thumbnail could not be generated.", "info");
-  }
 });
 
 videoPlayer.addEventListener("loadedmetadata", () => {
@@ -708,6 +685,17 @@ function updateTimeline() {
   updateFrameDisplays();
 }
 
+function centerPlayheadInTimeline() {
+  if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration)) {
+    return;
+  }
+
+  const playheadPosition = parseFloat(playhead.style.left) || 0;
+  const targetScroll = playheadPosition - timelineContainer.clientWidth / 2;
+  const maxScroll = Math.max(0, timeline.scrollWidth - timelineContainer.clientWidth);
+  timelineContainer.scrollLeft = Math.max(0, Math.min(targetScroll, maxScroll));
+}
+
 async function analyzeAnimatic() {
   const file = videoInput.files[0];
   if (!file) {
@@ -771,11 +759,13 @@ async function analyzeAnimatic() {
 zoomInButton.onclick = () => {
   zoomLevel = Math.min(ZOOM_MAX, zoomLevel + 1);
   updateTimeline();
+  centerPlayheadInTimeline();
 };
 
 zoomOutButton.onclick = () => {
   zoomLevel = Math.max(ZOOM_MIN, zoomLevel - 1);
   updateTimeline();
+  centerPlayheadInTimeline();
 };
 
 deleteMarkerButton.onclick = () => {
@@ -821,6 +811,10 @@ exportPdfButton.onclick = () => {
 
 exportXlsButton.onclick = () => {
   exportVisibleTableToXls();
+};
+
+exportXlsxButton.onclick = () => {
+  exportVisibleTableToXlsx();
 };
 
 playheadBackButton.onclick = () => {
