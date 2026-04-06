@@ -27,6 +27,7 @@ const resultsTable = document.getElementById("resultsTable");
 const tableBody = resultsTable.querySelector("tbody");
 const exportControls = document.getElementById("exportControls");
 const exportPdfButton = document.getElementById("exportPdfButton");
+const exportCsvButton = document.getElementById("exportCsvButton");
 const exportXlsButton = document.getElementById("exportXlsButton");
 const exportXlsxButton = document.getElementById("exportXlsxButton");
 
@@ -440,66 +441,48 @@ function getRenderedTableRows() {
   return rows;
 }
 
-function exportVisibleTableToXls() {
+function buildWorkbookFromVisibleTable() {
   const rows = getRenderedTableRows();
   if (rows.length <= 1) {
     setStatus("There is no table data to export.", "info");
+    return null;
+  }
+
+  if (!window.XLSX) {
+    setStatus("Spreadsheet exporter could not be loaded. Please refresh and try again.", "error");
+    return null;
+  }
+
+  const worksheet = window.XLSX.utils.aoa_to_sheet(rows);
+  const workbook = window.XLSX.utils.book_new();
+  window.XLSX.utils.book_append_sheet(workbook, worksheet, "Detected Scenes");
+  return workbook;
+}
+
+function exportWorkbook(workbook, fileName, bookType) {
+  if (!workbook) {
     return;
   }
 
-  const htmlRows = rows
-    .map(
-      (row, index) =>
-        `<tr>${row
-          .map((cell) => `<${index === 0 ? "th" : "td"}>${cell}</${index === 0 ? "th" : "td"}>`)
-          .join("")}</tr>`,
-    )
-    .join("");
-  const workbookHtml = `
-    <html xmlns:o="urn:schemas-microsoft-com:office:office"
-          xmlns:x="urn:schemas-microsoft-com:office:excel"
-          xmlns="http://www.w3.org/TR/REC-html40">
-      <head><meta charset="UTF-8"></head>
-      <body><table>${htmlRows}</table></body>
-    </html>
-  `;
+  window.XLSX.writeFile(workbook, fileName, {
+    bookType,
+    compression: true,
+  });
+}
 
-  downloadBlob(
-    new Blob([workbookHtml], { type: "application/vnd.ms-excel;charset=utf-8;" }),
-    "detected-scenes.xls",
-  );
+function exportVisibleTableToCsv() {
+  const workbook = buildWorkbookFromVisibleTable();
+  exportWorkbook(workbook, "detected-scenes.csv", "csv");
+}
+
+function exportVisibleTableToXls() {
+  const workbook = buildWorkbookFromVisibleTable();
+  exportWorkbook(workbook, "detected-scenes.xls", "xls");
 }
 
 function exportVisibleTableToXlsx() {
-  const rows = getRenderedTableRows();
-  if (rows.length <= 1) {
-    setStatus("There is no table data to export.", "info");
-    return;
-  }
-
-  const htmlRows = rows
-    .map(
-      (row, index) =>
-        `<tr>${row
-          .map((cell) => `<${index === 0 ? "th" : "td"}>${cell}</${index === 0 ? "th" : "td"}>`)
-          .join("")}</tr>`,
-    )
-    .join("");
-  const workbookHtml = `
-    <html xmlns:o="urn:schemas-microsoft-com:office:office"
-          xmlns:x="urn:schemas-microsoft-com:office:excel"
-          xmlns="http://www.w3.org/TR/REC-html40">
-      <head><meta charset="UTF-8"></head>
-      <body><table>${htmlRows}</table></body>
-    </html>
-  `;
-
-  downloadBlob(
-    new Blob([workbookHtml], {
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8;",
-    }),
-    "detected-scenes.xlsx",
-  );
+  const workbook = buildWorkbookFromVisibleTable();
+  exportWorkbook(workbook, "detected-scenes.xlsx", "xlsx");
 }
 
 function escapePdfText(value) {
@@ -808,6 +791,10 @@ redoChangeButton.onclick = () => {
 
 exportPdfButton.onclick = () => {
   exportVisibleTableToPdf();
+};
+
+exportCsvButton.onclick = () => {
+  exportVisibleTableToCsv();
 };
 
 exportXlsButton.onclick = () => {
