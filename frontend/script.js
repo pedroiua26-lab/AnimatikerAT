@@ -36,6 +36,7 @@ const ZOOM_MAX = 20;
 const baseWidth = 1000;
 const FRAME_THUMB_WIDTH = 192;
 const FRAME_THUMB_HEIGHT = 108;
+const KEY_SCRUB_HOLD_DELAY_MS = 500;
 
 let markers = [];
 let sceneRows = [];
@@ -54,6 +55,7 @@ const frameImageCache = new Map();
 let timelineScrubState = null;
 let keyScrubAnimationFrame = null;
 const keyScrubDirections = new Set();
+const keyScrubHoldTimeouts = new Map();
 
 const storedApiBase = localStorage.getItem("animaticApiBase");
 apiBaseInput.value = storedApiBase || DEFAULT_API_BASE;
@@ -223,11 +225,40 @@ function startKeyScrub(key) {
 }
 
 function stopKeyScrub(key) {
+  const holdTimeout = keyScrubHoldTimeouts.get(key);
+  if (holdTimeout !== undefined) {
+    clearTimeout(holdTimeout);
+    keyScrubHoldTimeouts.delete(key);
+  }
+
   keyScrubDirections.delete(key);
   if (!keyScrubDirections.size && keyScrubAnimationFrame !== null) {
     cancelAnimationFrame(keyScrubAnimationFrame);
     keyScrubAnimationFrame = null;
   }
+}
+
+function nudgeByArrowKey(key) {
+  if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration)) {
+    return;
+  }
+
+  const frame = timeToFrame(videoPlayer.currentTime);
+  const direction = key === "ArrowRight" ? 1 : -1;
+  setVideoTimeByFrame(frame + direction);
+}
+
+function beginArrowKeyHold(key) {
+  if (keyScrubHoldTimeouts.has(key)) {
+    return;
+  }
+
+  nudgeByArrowKey(key);
+  const timeoutId = setTimeout(() => {
+    keyScrubHoldTimeouts.delete(key);
+    startKeyScrub(key);
+  }, KEY_SCRUB_HOLD_DELAY_MS);
+  keyScrubHoldTimeouts.set(key, timeoutId);
 }
 
 function updateUndoRedoButtons() {
@@ -1189,14 +1220,12 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
-  if (event.key === "ArrowLeft") {
+  if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
     event.preventDefault();
-    startKeyScrub(event.key);
-  }
-
-  if (event.key === "ArrowRight") {
-    event.preventDefault();
-    startKeyScrub(event.key);
+    if (event.repeat) {
+      return;
+    }
+    beginArrowKeyHold(event.key);
   }
 });
 
