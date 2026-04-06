@@ -153,14 +153,19 @@ button {
   align-items: stretch;
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas:
+    "displays displays"
+    "playhead zoom";
 }
 
 #frameDisplays {
   margin-top: 0;
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-area: displays;
+  grid-template-columns: 1fr 1fr 0.333fr;
+  width: 100%;
 }
 
 .frame-display {
@@ -193,8 +198,13 @@ button {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+#playheadControls {
+  grid-area: playhead;
+}
+
 #zoomControls {
   margin-left: 0;
+  grid-area: zoom;
 }
 
 #zoomControls button,
@@ -207,6 +217,14 @@ button {
 
 @media (max-width: 680px) {
   #timelineControlsRow {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "displays"
+      "playhead"
+      "zoom";
+  }
+
+  #frameDisplays {
     grid-template-columns: 1fr;
   }
 }
