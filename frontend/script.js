@@ -12,6 +12,7 @@ const playhead = document.getElementById("playhead");
 const currentFrameDisplay = document.getElementById("currentFrameDisplay");
 const totalFramesDisplay = document.getElementById("totalFramesDisplay");
 const fpsDisplay = document.getElementById("fpsDisplay");
+const sequenceStartTimecodeInput = document.getElementById("sequenceStartTimecodeInput");
 const zoomInButton = document.getElementById("zoomIn");
 const zoomOutButton = document.getElementById("zoomOut");
 const playheadBackButton = document.getElementById("playheadBack");
@@ -51,6 +52,7 @@ let savedMarkersSnapshot = "[]";
 let detectedVideoFps = FPS;
 let fpsProbeActive = false;
 let fpsProbeRequestId = null;
+let sequenceStartTimecode = "00:00:00:00";
 const frameImageCache = new Map();
 let timelineScrubState = null;
 let keyScrubAnimationFrame = null;
@@ -62,6 +64,26 @@ apiBaseInput.value = storedApiBase || DEFAULT_API_BASE;
 
 apiBaseInput.addEventListener("change", () => {
   localStorage.setItem("animaticApiBase", apiBaseInput.value.trim());
+});
+
+sequenceStartTimecodeInput.value = sequenceStartTimecode;
+
+sequenceStartTimecodeInput.addEventListener("input", () => {
+  sequenceStartTimecode = sequenceStartTimecodeInput.value.trim();
+  updateTable();
+});
+
+sequenceStartTimecodeInput.addEventListener("blur", () => {
+  const normalizedValue = normalizeTimecodeInputValue(sequenceStartTimecodeInput.value);
+  if (normalizedValue === null) {
+    sequenceStartTimecode = "00:00:00:00";
+    sequenceStartTimecodeInput.value = sequenceStartTimecode;
+    setStatus("Timecode inválido. Valor redefinido para 00:00:00:00.", "info");
+  } else {
+    sequenceStartTimecode = normalizedValue;
+    sequenceStartTimecodeInput.value = normalizedValue;
+  }
+  updateTable();
 });
 
 function timeToFrame(time) {
@@ -497,6 +519,7 @@ function updateTable() {
   }
 
   const lastVideoFrame = getVideoLastFrame();
+  const sequenceStartOffset = getSequenceStartTimecodeFrameOffset();
 
   for (let i = 0; i < markers.length; i += 1) {
     const start = markers[i].frame;
@@ -508,8 +531,8 @@ function updateTable() {
       startFrame: start,
       endFrame: end,
       durationFrames: duration,
-      startTimecode: formatFrameAsTimecode(start),
-      endTimecode: formatFrameAsTimecode(end),
+      startTimecode: formatFrameAsTimecode(sequenceStartOffset + start),
+      endTimecode: formatFrameAsTimecode(sequenceStartOffset + end),
       durationTimecode: formatFrameAsTimecode(duration),
     };
     sceneRows.push(sceneData);
@@ -545,6 +568,46 @@ function formatFrameAsTimecode(frameValue) {
   return [hours, minutes, seconds, framesRemainder]
     .map((value) => String(value).padStart(2, "0"))
     .join(":");
+}
+
+function parseTimecodeToFrame(timecodeValue) {
+  const normalizedValue = String(timecodeValue || "").trim();
+  const match = normalizedValue.match(/^(\d+):([0-5]\d):([0-5]\d):(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  const [, hoursText, minutesText, secondsText, framesText] = match;
+  const hours = Number(hoursText);
+  const minutes = Number(minutesText);
+  const seconds = Number(secondsText);
+  const frames = Number(framesText);
+  const timecodeFps = Math.max(1, Math.round(detectedVideoFps || FPS));
+
+  if (
+    !Number.isInteger(hours) ||
+    !Number.isInteger(minutes) ||
+    !Number.isInteger(seconds) ||
+    !Number.isInteger(frames) ||
+    frames >= timecodeFps
+  ) {
+    return null;
+  }
+
+  return ((hours * 3600 + minutes * 60 + seconds) * timecodeFps) + frames;
+}
+
+function getSequenceStartTimecodeFrameOffset() {
+  const parsedFrame = parseTimecodeToFrame(sequenceStartTimecode);
+  return parsedFrame === null ? 0 : parsedFrame;
+}
+
+function normalizeTimecodeInputValue(rawValue) {
+  const parsedFrame = parseTimecodeToFrame(rawValue);
+  if (parsedFrame === null) {
+    return null;
+  }
+  return formatFrameAsTimecode(parsedFrame);
 }
 
 function downloadBlob(blob, filename) {
