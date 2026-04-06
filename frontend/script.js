@@ -51,6 +51,9 @@ let detectedVideoFps = FPS;
 let fpsProbeActive = false;
 let fpsProbeRequestId = null;
 const frameImageCache = new Map();
+let timelineScrubState = null;
+let keyScrubAnimationFrame = null;
+const keyScrubDirections = new Set();
 
 const storedApiBase = localStorage.getItem("animaticApiBase");
 apiBaseInput.value = storedApiBase || DEFAULT_API_BASE;
@@ -142,6 +145,89 @@ function setVideoTimeByFrame(frame) {
   const safeFrame = Math.max(0, Math.min(frame, totalFrames));
   videoPlayer.currentTime = frameToTime(safeFrame);
   updateFrameDisplays();
+}
+
+function updateVideoFrameFromPointer(clientX, rect) {
+  if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration)) {
+    return;
+  }
+
+  const timelineWidth = rect.width;
+  if (!timelineWidth) {
+    return;
+  }
+
+  const x = clientX - rect.left;
+  const safeX = Math.min(Math.max(x, 0), timelineWidth);
+  const totalFrames = Math.max(1, getVideoLastFrame());
+  const frame = Math.round((safeX / timelineWidth) * totalFrames);
+  setVideoTimeByFrame(frame);
+}
+
+function stopTimelineScrub() {
+  if (!timelineScrubState) {
+    return;
+  }
+
+  if (timelineScrubState.pointerId !== null) {
+    timeline.releasePointerCapture(timelineScrubState.pointerId);
+  }
+  timelineScrubState = null;
+}
+
+function startTimelineScrub(event) {
+  if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration)) {
+    return;
+  }
+
+  timelineScrubState = {
+    pointerId: event.pointerId ?? null,
+  };
+
+  if (timelineScrubState.pointerId !== null) {
+    timeline.setPointerCapture(timelineScrubState.pointerId);
+  }
+
+  updateVideoFrameFromPointer(event.clientX, timeline.getBoundingClientRect());
+}
+
+function animateKeyScrub() {
+  if (!keyScrubDirections.size) {
+    keyScrubAnimationFrame = null;
+    return;
+  }
+
+  if (videoPlayer.duration && Number.isFinite(videoPlayer.duration)) {
+    let stepDirection = 0;
+    if (keyScrubDirections.has("ArrowRight")) {
+      stepDirection += 1;
+    }
+    if (keyScrubDirections.has("ArrowLeft")) {
+      stepDirection -= 1;
+    }
+
+    if (stepDirection !== 0) {
+      const frame = timeToFrame(videoPlayer.currentTime);
+      setVideoTimeByFrame(frame + stepDirection);
+    }
+  }
+
+  keyScrubAnimationFrame = requestAnimationFrame(animateKeyScrub);
+}
+
+function startKeyScrub(key) {
+  keyScrubDirections.add(key);
+  if (keyScrubAnimationFrame === null) {
+    keyScrubAnimationFrame = requestAnimationFrame(animateKeyScrub);
+  }
+}
+
+function stopKeyScrub(key) {
+  keyScrubDirections.delete(key);
+  if (!keyScrubDirections.size && keyScrubAnimationFrame !== null) {
+    cancelAnimationFrame(keyScrubAnimationFrame);
+    keyScrubAnimationFrame = null;
+  }
 }
 
 function updateUndoRedoButtons() {
@@ -869,6 +955,35 @@ videoPlayer.addEventListener("timeupdate", () => {
   updatePlayhead();
 });
 
+timeline.addEventListener("pointerdown", (event) => {
+  if (event.target.closest(".marker")) {
+    return;
+  }
+
+  event.preventDefault();
+
+  selectedMarkerIndex = null;
+  selectedMarkerLockedToPlayhead = false;
+  renderMarkers();
+  startTimelineScrub(event);
+});
+
+timeline.addEventListener("pointermove", (event) => {
+  if (!timelineScrubState) {
+    return;
+  }
+
+  updateVideoFrameFromPointer(event.clientX, timeline.getBoundingClientRect());
+});
+
+timeline.addEventListener("pointerup", () => {
+  stopTimelineScrub();
+});
+
+timeline.addEventListener("pointercancel", () => {
+  stopTimelineScrub();
+});
+
 timeline.addEventListener("click", (e) => {
   if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration)) {
     return;
@@ -1076,15 +1191,25 @@ document.addEventListener("keydown", (event) => {
 
   if (event.key === "ArrowLeft") {
     event.preventDefault();
-    const frame = timeToFrame(videoPlayer.currentTime);
-    setVideoTimeByFrame(frame - 1);
+    startKeyScrub(event.key);
   }
 
   if (event.key === "ArrowRight") {
     event.preventDefault();
-    const frame = timeToFrame(videoPlayer.currentTime);
-    setVideoTimeByFrame(frame + 1);
+    startKeyScrub(event.key);
   }
+});
+
+document.addEventListener("keyup", (event) => {
+  if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+    stopKeyScrub(event.key);
+  }
+});
+
+window.addEventListener("blur", () => {
+  stopKeyScrub("ArrowLeft");
+  stopKeyScrub("ArrowRight");
+  stopTimelineScrub();
 });
 
 analyzeButton.addEventListener("click", analyzeAnimatic);
