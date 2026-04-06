@@ -34,8 +34,11 @@ const exportXlsxButton = document.getElementById("exportXlsxButton");
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 20;
 const baseWidth = 1000;
+const FRAME_THUMB_WIDTH = 192;
+const FRAME_THUMB_HEIGHT = 108;
 
 let markers = [];
+let sceneRows = [];
 let currentVideoUrl = null;
 let selectedMarkerIndex = null;
 let isDirty = false;
@@ -47,6 +50,7 @@ let savedMarkersSnapshot = "[]";
 let detectedVideoFps = FPS;
 let fpsProbeActive = false;
 let fpsProbeRequestId = null;
+const frameImageCache = new Map();
 
 const storedApiBase = localStorage.getItem("animaticApiBase");
 apiBaseInput.value = storedApiBase || DEFAULT_API_BASE;
@@ -224,6 +228,7 @@ function resetVideoSource() {
   }
   fpsProbeRequestId = null;
   playhead.style.left = "0px";
+  frameImageCache.clear();
   updateFrameDisplays();
 }
 
@@ -366,6 +371,7 @@ function renderMarkers() {
 
 function updateTable() {
   tableBody.innerHTML = "";
+  sceneRows = [];
 
   if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration) || markers.length < 1) {
     resultsTable.hidden = true;
@@ -380,16 +386,28 @@ function updateTable() {
     const nextStart = i < markers.length - 1 ? markers[i + 1].frame : lastVideoFrame + 1;
     const end = Math.min(lastVideoFrame, nextStart - 1);
     const duration = Math.max(0, end - start + 1);
+    const sceneData = {
+      scene: i + 1,
+      startFrame: start,
+      endFrame: end,
+      durationFrames: duration,
+      startTimecode: formatFrameAsTimecode(start),
+      endTimecode: formatFrameAsTimecode(end),
+      durationTimecode: formatFrameAsTimecode(duration),
+    };
+    sceneRows.push(sceneData);
 
     const row = document.createElement("tr");
     row.innerHTML = `
-      <td>${i + 1}</td>
-      <td>${start}</td>
-      <td>${end}</td>
-      <td>${duration}</td>
-      <td>${formatFrameAsTimecode(start)}</td>
-      <td>${formatFrameAsTimecode(end)}</td>
-      <td>${formatFrameAsTimecode(duration)}</td>
+      <td>${sceneData.scene}</td>
+      <td>${sceneData.startFrame}</td>
+      <td>${sceneData.endFrame}</td>
+      <td>${sceneData.startFrame}</td>
+      <td>${sceneData.endFrame}</td>
+      <td>${sceneData.durationFrames}</td>
+      <td>${sceneData.startTimecode}</td>
+      <td>${sceneData.endTimecode}</td>
+      <td>${sceneData.durationTimecode}</td>
     `;
     tableBody.appendChild(row);
   }
@@ -424,39 +442,34 @@ function downloadBlob(blob, filename) {
 }
 
 function getRenderedTableRows() {
-  const rows = [];
-  const headers = Array.from(resultsTable.querySelectorAll("thead th")).map((header) =>
-    header.textContent.trim(),
-  );
+  const headers = [
+    "Scene #",
+    "Start Frame",
+    "End Frame",
+    "Start Frame Image",
+    "End Frame Image",
+    "Duration (Frames)",
+    "Start Timecode",
+    "End Timecode",
+    "Duration Timecode",
+  ];
+  const rows = [headers];
 
-  if (headers.length) {
-    rows.push(headers);
-  }
-
-  Array.from(tableBody.querySelectorAll("tr")).forEach((row) => {
-    const values = Array.from(row.querySelectorAll("td")).map((cell) => cell.textContent.trim());
-    rows.push(values);
+  sceneRows.forEach((sceneData) => {
+    rows.push([
+      String(sceneData.scene),
+      String(sceneData.startFrame),
+      String(sceneData.endFrame),
+      String(sceneData.startFrame),
+      String(sceneData.endFrame),
+      String(sceneData.durationFrames),
+      sceneData.startTimecode,
+      sceneData.endTimecode,
+      sceneData.durationTimecode,
+    ]);
   });
 
   return rows;
-}
-
-function buildWorkbookFromVisibleTable() {
-  const rows = getRenderedTableRows();
-  if (rows.length <= 1) {
-    setStatus("There is no table data to export.", "info");
-    return null;
-  }
-
-  if (!window.XLSX) {
-    setStatus("Spreadsheet exporter could not be loaded. Please refresh and try again.", "error");
-    return null;
-  }
-
-  const worksheet = window.XLSX.utils.aoa_to_sheet(rows);
-  const workbook = window.XLSX.utils.book_new();
-  window.XLSX.utils.book_append_sheet(workbook, worksheet, "Detected Scenes");
-  return workbook;
 }
 
 function exportWorkbook(workbook, fileName, bookType) {
@@ -471,18 +484,254 @@ function exportWorkbook(workbook, fileName, bookType) {
 }
 
 function exportVisibleTableToCsv() {
-  const workbook = buildWorkbookFromVisibleTable();
+  const rows = [["Scene #", "Start Frame", "End Frame", "Duration (Frames)", "Start Timecode", "End Timecode", "Duration Timecode"]];
+  sceneRows.forEach((sceneData) => {
+    rows.push([
+      String(sceneData.scene),
+      String(sceneData.startFrame),
+      String(sceneData.endFrame),
+      String(sceneData.durationFrames),
+      sceneData.startTimecode,
+      sceneData.endTimecode,
+      sceneData.durationTimecode,
+    ]);
+  });
+
+  if (rows.length <= 1) {
+    setStatus("There is no table data to export.", "info");
+    return;
+  }
+
+  if (!window.XLSX) {
+    setStatus("Spreadsheet exporter could not be loaded. Please refresh and try again.", "error");
+    return;
+  }
+
+  const worksheet = window.XLSX.utils.aoa_to_sheet(rows);
+  const workbook = window.XLSX.utils.book_new();
+  window.XLSX.utils.book_append_sheet(workbook, worksheet, "Detected Scenes");
   exportWorkbook(workbook, "detected-scenes.csv", "csv");
 }
 
-function exportVisibleTableToXls() {
-  const workbook = buildWorkbookFromVisibleTable();
-  exportWorkbook(workbook, "detected-scenes.xls", "xls");
+function seekVideoForCapture(targetTime) {
+  const safeTargetTime = Math.max(0, Math.min(targetTime, videoPlayer.duration || 0));
+
+  return new Promise((resolve) => {
+    if (Math.abs(videoPlayer.currentTime - safeTargetTime) < 0.0005) {
+      requestAnimationFrame(() => resolve());
+      return;
+    }
+
+    const onSeeked = () => {
+      videoPlayer.removeEventListener("seeked", onSeeked);
+      resolve();
+    };
+
+    videoPlayer.addEventListener("seeked", onSeeked, { once: true });
+    videoPlayer.currentTime = safeTargetTime;
+  });
 }
 
-function exportVisibleTableToXlsx() {
-  const workbook = buildWorkbookFromVisibleTable();
-  exportWorkbook(workbook, "detected-scenes.xlsx", "xlsx");
+async function captureFrameImageAtFrame(frame) {
+  const cacheKey = String(frame);
+  if (frameImageCache.has(cacheKey)) {
+    return frameImageCache.get(cacheKey);
+  }
+
+  if (!videoPlayer.videoWidth || !videoPlayer.videoHeight) {
+    return "";
+  }
+
+  await seekVideoForCapture(frameToTime(frame));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = FRAME_THUMB_WIDTH;
+  canvas.height = FRAME_THUMB_HEIGHT;
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return "";
+  }
+
+  context.drawImage(videoPlayer, 0, 0, FRAME_THUMB_WIDTH, FRAME_THUMB_HEIGHT);
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.88);
+  frameImageCache.set(cacheKey, dataUrl);
+  return dataUrl;
+}
+
+async function withVideoStateRestored(callback) {
+  const startTime = videoPlayer.currentTime;
+  const wasPaused = videoPlayer.paused;
+  videoPlayer.pause();
+
+  try {
+    return await callback();
+  } finally {
+    await seekVideoForCapture(startTime);
+    if (!wasPaused) {
+      videoPlayer.play().catch(() => {});
+    }
+  }
+}
+
+async function collectSceneFrameImages() {
+  if (!sceneRows.length) {
+    return [];
+  }
+
+  return withVideoStateRestored(async () => {
+    const rowsWithImages = [];
+    for (const sceneData of sceneRows) {
+      const startImage = await captureFrameImageAtFrame(sceneData.startFrame);
+      const endImage = await captureFrameImageAtFrame(sceneData.endFrame);
+      rowsWithImages.push({
+        ...sceneData,
+        startImage,
+        endImage,
+      });
+    }
+    return rowsWithImages;
+  });
+}
+
+async function exportVisibleTableToXlsx() {
+  if (!sceneRows.length) {
+    setStatus("There is no table data to export.", "info");
+    return;
+  }
+
+  if (!window.ExcelJS) {
+    setStatus("XLSX exporter could not be loaded. Please refresh and try again.", "error");
+    return;
+  }
+
+  setStatus("Generating XLSX with frame thumbnails...");
+
+  const rowsWithImages = await collectSceneFrameImages();
+  const workbook = new window.ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet("Detected Scenes");
+
+  worksheet.columns = [
+    { header: "Scene #", key: "scene", width: 10 },
+    { header: "Start Frame", key: "startFrame", width: 12 },
+    { header: "End Frame", key: "endFrame", width: 12 },
+    { header: "Start Frame Image", key: "startImage", width: 30 },
+    { header: "End Frame Image", key: "endImage", width: 30 },
+    { header: "Duration (Frames)", key: "durationFrames", width: 18 },
+    { header: "Start Timecode", key: "startTimecode", width: 16 },
+    { header: "End Timecode", key: "endTimecode", width: 16 },
+    { header: "Duration Timecode", key: "durationTimecode", width: 18 },
+  ];
+
+  rowsWithImages.forEach((sceneData, index) => {
+    const rowNumber = index + 2;
+    worksheet.addRow({
+      scene: sceneData.scene,
+      startFrame: sceneData.startFrame,
+      endFrame: sceneData.endFrame,
+      durationFrames: sceneData.durationFrames,
+      startTimecode: sceneData.startTimecode,
+      endTimecode: sceneData.endTimecode,
+      durationTimecode: sceneData.durationTimecode,
+    });
+    worksheet.getRow(rowNumber).height = 82;
+
+    if (sceneData.startImage) {
+      const startImageId = workbook.addImage({
+        base64: sceneData.startImage,
+        extension: "jpeg",
+      });
+      worksheet.addImage(startImageId, {
+        tl: { col: 3, row: rowNumber - 1 },
+        ext: { width: FRAME_THUMB_WIDTH, height: FRAME_THUMB_HEIGHT },
+      });
+    }
+
+    if (sceneData.endImage) {
+      const endImageId = workbook.addImage({
+        base64: sceneData.endImage,
+        extension: "jpeg",
+      });
+      worksheet.addImage(endImageId, {
+        tl: { col: 4, row: rowNumber - 1 },
+        ext: { width: FRAME_THUMB_WIDTH, height: FRAME_THUMB_HEIGHT },
+      });
+    }
+  });
+
+  const xlsxBuffer = await workbook.xlsx.writeBuffer();
+  downloadBlob(
+    new Blob([xlsxBuffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }),
+    "detected-scenes.xlsx",
+  );
+
+  setStatus("XLSX exported with embedded frame thumbnails.", "success");
+}
+
+async function exportVisibleTableToXls() {
+  if (!sceneRows.length) {
+    setStatus("There is no table data to export.", "info");
+    return;
+  }
+
+  setStatus("Generating XLS with frame thumbnails...");
+  const rowsWithImages = await collectSceneFrameImages();
+
+  const htmlRows = rowsWithImages
+    .map(
+      (sceneData) => `
+        <tr>
+          <td>${sceneData.scene}</td>
+          <td>${sceneData.startFrame}</td>
+          <td>${sceneData.endFrame}</td>
+          <td><img width="${FRAME_THUMB_WIDTH}" height="${FRAME_THUMB_HEIGHT}" src="${sceneData.startImage}" /></td>
+          <td><img width="${FRAME_THUMB_WIDTH}" height="${FRAME_THUMB_HEIGHT}" src="${sceneData.endImage}" /></td>
+          <td>${sceneData.durationFrames}</td>
+          <td>${sceneData.startTimecode}</td>
+          <td>${sceneData.endTimecode}</td>
+          <td>${sceneData.durationTimecode}</td>
+        </tr>`,
+    )
+    .join("");
+
+  const workbookHtml = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:x="urn:schemas-microsoft-com:office:excel"
+      xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta charset="UTF-8">
+        <!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Detected Scenes</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+        <style>
+          table, th, td { border: 1px solid #333; border-collapse: collapse; }
+          th, td { padding: 4px; vertical-align: top; }
+          img { display: block; width: ${FRAME_THUMB_WIDTH}px; height: ${FRAME_THUMB_HEIGHT}px; }
+        </style>
+      </head>
+      <body>
+        <table>
+          <thead>
+            <tr>
+              <th>Scene #</th>
+              <th>Start Frame</th>
+              <th>End Frame</th>
+              <th>Start Frame Image</th>
+              <th>End Frame Image</th>
+              <th>Duration (Frames)</th>
+              <th>Start Timecode</th>
+              <th>End Timecode</th>
+              <th>Duration Timecode</th>
+            </tr>
+          </thead>
+          <tbody>${htmlRows}</tbody>
+        </table>
+      </body>
+    </html>
+  `;
+
+  downloadBlob(new Blob([workbookHtml], { type: "application/vnd.ms-excel;charset=utf-8;" }), "detected-scenes.xls");
+  setStatus("XLS exported with embedded frame thumbnails.", "success");
 }
 
 function escapePdfText(value) {
@@ -596,6 +845,7 @@ videoInput.addEventListener("change", () => {
   videoPlayer.load();
 
   markers = [];
+  frameImageCache.clear();
   selectedMarkerIndex = null;
   renderMarkers();
   applyChanges();
@@ -798,11 +1048,15 @@ exportCsvButton.onclick = () => {
 };
 
 exportXlsButton.onclick = () => {
-  exportVisibleTableToXls();
+  exportVisibleTableToXls().catch((error) => {
+    setStatus(`XLS export failed: ${error.message}`, "error");
+  });
 };
 
 exportXlsxButton.onclick = () => {
-  exportVisibleTableToXlsx();
+  exportVisibleTableToXlsx().catch((error) => {
+    setStatus(`XLSX export failed: ${error.message}`, "error");
+  });
 };
 
 playheadBackButton.onclick = () => {
