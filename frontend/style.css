@@ -148,7 +148,7 @@ button {
   min-width: 0;
   display: grid;
   grid-area: displays;
-  grid-template-columns: 1fr 1fr 0.333fr;
+  grid-template-columns: 1fr 1fr 0.45fr 0.9fr;
   width: 100%;
 }
 
@@ -169,6 +169,22 @@ button {
 }
 
 .frame-display span:last-child {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.frame-display-timecode {
+  min-width: 170px;
+}
+
+.frame-display-timecode .label {
+  margin: 0;
+}
+
+.frame-display-timecode input {
+  margin-top: 0;
+  padding: 0.35rem 0.45rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.95rem;
   font-weight: 700;
