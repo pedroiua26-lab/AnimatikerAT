@@ -61,6 +61,8 @@ button {
   height: 54px;
   background: #222;
   min-width: 1000px;
+  cursor: ew-resize;
+  touch-action: none;
 }
 
 #frameTicks {
@@ -84,6 +86,7 @@ button {
   height: 100%;
   background: red;
   left: 0;
+  pointer-events: none;
 }
 
 #markers {
