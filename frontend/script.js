@@ -12,6 +12,7 @@ const markersContainer = document.getElementById("markers");
 const playhead = document.getElementById("playhead");
 const currentFrameDisplay = document.getElementById("currentFrameDisplay");
 const totalFramesDisplay = document.getElementById("totalFramesDisplay");
+const fpsDisplay = document.getElementById("fpsDisplay");
 const zoomInButton = document.getElementById("zoomIn");
 const zoomOutButton = document.getElementById("zoomOut");
 const playheadBackButton = document.getElementById("playheadBack");
@@ -42,6 +43,9 @@ let selectedMarkerLockedToPlayhead = false;
 let history = [];
 let historyIndex = -1;
 let savedMarkersSnapshot = "[]";
+let detectedVideoFps = FPS;
+let fpsProbeActive = false;
+let fpsProbeRequestId = null;
 
 const storedApiBase = localStorage.getItem("animaticApiBase");
 apiBaseInput.value = storedApiBase || DEFAULT_API_BASE;
@@ -66,12 +70,35 @@ function getVideoLastFrame() {
   return Math.max(0, timeToFrame(videoPlayer.duration) - 1);
 }
 
+function formatFps(fpsValue) {
+  if (!Number.isFinite(fpsValue) || fpsValue <= 0) {
+    return FPS.toFixed(2);
+  }
+
+  return fpsValue.toFixed(2);
+}
+
 function updateFrameDisplays() {
   const currentFrame = Math.max(0, timeToFrame(videoPlayer.currentTime));
   const lastFrame = getVideoLastFrame();
 
   currentFrameDisplay.textContent = String(Math.min(currentFrame, lastFrame));
   totalFramesDisplay.textContent = String(lastFrame + 1);
+  fpsDisplay.textContent = formatFps(detectedVideoFps);
+}
+
+function enforceFirstMarkerStartFrame() {
+  if (!markers.length) {
+    return;
+  }
+
+  const lastFrame = getVideoLastFrame();
+  if (lastFrame >= 1) {
+    markers[0].frame = Math.max(1, Math.min(markers[0].frame, lastFrame));
+    return;
+  }
+
+  markers[0].frame = 0;
 }
 
 function getTimelineWidth() {
@@ -90,6 +117,7 @@ function normalizeMarkers() {
     marker.frame = Math.max(0, Math.min(Math.round(safeFrame), lastFrame));
   });
   markers.sort((a, b) => a.frame - b.frame);
+  enforceFirstMarkerStartFrame();
 }
 
 function setDirtyState(dirty) {
@@ -193,8 +221,48 @@ function resetVideoSource() {
   }
   videoPlayer.removeAttribute("src");
   videoPlayer.load();
+  detectedVideoFps = FPS;
+  fpsProbeActive = false;
+  if (fpsProbeRequestId !== null && typeof videoPlayer.cancelVideoFrameCallback === "function") {
+    videoPlayer.cancelVideoFrameCallback(fpsProbeRequestId);
+  }
+  fpsProbeRequestId = null;
   playhead.style.left = "0px";
   updateFrameDisplays();
+}
+
+function probeVideoFps() {
+  if (fpsProbeActive || typeof videoPlayer.requestVideoFrameCallback !== "function") {
+    return;
+  }
+
+  fpsProbeActive = true;
+  let firstMetadata = null;
+  let lastMetadata = null;
+
+  const onFrame = (_, metadata) => {
+    if (!firstMetadata) {
+      firstMetadata = metadata;
+      lastMetadata = metadata;
+    } else {
+      lastMetadata = metadata;
+    }
+
+    const frameDelta = lastMetadata.presentedFrames - firstMetadata.presentedFrames;
+    const timeDelta = lastMetadata.mediaTime - firstMetadata.mediaTime;
+
+    if (frameDelta >= 12 && timeDelta > 0) {
+      detectedVideoFps = frameDelta / timeDelta;
+      fpsProbeActive = false;
+      fpsProbeRequestId = null;
+      updateFrameDisplays();
+      return;
+    }
+
+    fpsProbeRequestId = videoPlayer.requestVideoFrameCallback(onFrame);
+  };
+
+  fpsProbeRequestId = videoPlayer.requestVideoFrameCallback(onFrame);
 }
 
 function applyChanges() {
@@ -574,9 +642,16 @@ videoInput.addEventListener("change", async () => {
 });
 
 videoPlayer.addEventListener("loadedmetadata", () => {
+  detectedVideoFps = FPS;
+  fpsProbeActive = false;
+  fpsProbeRequestId = null;
   updateTimeline();
   renderMarkers();
   updatePlayhead();
+});
+
+videoPlayer.addEventListener("play", () => {
+  probeVideoFps();
 });
 
 videoPlayer.addEventListener("timeupdate", () => {
@@ -671,6 +746,7 @@ async function analyzeAnimatic() {
     markers = scenes.map((scene) => ({
       frame: Number(scene.start_frame) || 0,
     }));
+    enforceFirstMarkerStartFrame();
 
     selectedMarkerIndex = null;
     selectedMarkerLockedToPlayhead = false;
