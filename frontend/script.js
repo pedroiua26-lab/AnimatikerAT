@@ -114,10 +114,11 @@ function updateFrameDisplays() {
   const currentFrame = Math.max(0, timeToFrame(videoPlayer.currentTime));
   const lastFrame = getVideoLastFrame();
   const hasFrames = lastFrame >= 0;
-  const displayedCurrentFrame = hasFrames ? Math.min(currentFrame, lastFrame) : 0;
+  const displayedCurrentFrame = hasFrames ? Math.min(currentFrame, lastFrame) + 1 : 0;
+  const displayedTotalFrames = hasFrames ? lastFrame + 1 : 0;
 
   currentFrameDisplay.textContent = String(displayedCurrentFrame);
-  totalFramesDisplay.textContent = String(lastFrame);
+  totalFramesDisplay.textContent = String(displayedTotalFrames);
   fpsDisplay.textContent = formatFps(detectedVideoFps);
 }
 
@@ -522,8 +523,8 @@ function updateTable() {
     const nextStart = i < markers.length - 1 ? markers[i + 1].frame : lastVideoFrame + 1;
     const end = Math.min(lastVideoFrame, nextStart - 1);
     const duration = Math.max(0, end - start + 1);
-    const displayedStartFrame = start;
-    const displayedEndFrame = end;
+    const displayedStartFrame = start + 1;
+    const displayedEndFrame = end + 1;
     const sceneData = {
       scene: i + 1,
       startFrame: displayedStartFrame,
