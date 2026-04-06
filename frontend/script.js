@@ -1140,6 +1140,17 @@ function centerPlayheadInTimeline() {
   timelineContainer.scrollLeft = Math.max(0, Math.min(targetScroll, maxScroll));
 }
 
+function adjustTimelineZoom(direction) {
+  const nextZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoomLevel + direction));
+  if (nextZoom === zoomLevel) {
+    return;
+  }
+
+  zoomLevel = nextZoom;
+  updateTimeline();
+  centerPlayheadInTimeline();
+}
+
 async function analyzeAnimatic() {
   const file = videoInput.files[0];
   if (!file) {
@@ -1201,15 +1212,11 @@ async function analyzeAnimatic() {
 }
 
 zoomInButton.onclick = () => {
-  zoomLevel = Math.min(ZOOM_MAX, zoomLevel + 1);
-  updateTimeline();
-  centerPlayheadInTimeline();
+  adjustTimelineZoom(1);
 };
 
 zoomOutButton.onclick = () => {
-  zoomLevel = Math.max(ZOOM_MIN, zoomLevel - 1);
-  updateTimeline();
-  centerPlayheadInTimeline();
+  adjustTimelineZoom(-1);
 };
 
 deleteMarkerButton.onclick = () => {
@@ -1284,6 +1291,31 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 
+  if (event.ctrlKey && (event.key === "z" || event.key === "Z")) {
+    event.preventDefault();
+    if (event.shiftKey) {
+      restoreHistorySnapshot(historyIndex + 1);
+      return;
+    }
+
+    restoreHistorySnapshot(historyIndex - 1);
+    return;
+  }
+
+  if (!event.ctrlKey && !event.metaKey) {
+    if (event.key === "a" || event.key === "A") {
+      event.preventDefault();
+      addMarkerButton.onclick();
+      return;
+    }
+
+    if (event.key === "d" || event.key === "D") {
+      event.preventDefault();
+      deleteMarkerButton.onclick();
+      return;
+    }
+  }
+
   if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
     event.preventDefault();
     if (event.repeat) {
@@ -1304,6 +1336,16 @@ window.addEventListener("blur", () => {
   stopKeyScrub("ArrowRight");
   stopTimelineScrub();
 });
+
+timelineContainer.addEventListener("wheel", (event) => {
+  if (!event.altKey) {
+    return;
+  }
+
+  event.preventDefault();
+  const zoomDirection = event.deltaY < 0 ? 1 : -1;
+  adjustTimelineZoom(zoomDirection);
+}, { passive: false });
 
 analyzeButton.addEventListener("click", analyzeAnimatic);
 updateTimeline();
