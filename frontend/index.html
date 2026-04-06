@@ -54,8 +54,8 @@
           </div>
 
           <div id="zoomControls">
-            <button id="zoomOut" type="button">-</button>
-            <button id="zoomIn" type="button">+</button>
+            <button id="zoomOut" type="button">- Zoom</button>
+            <button id="zoomIn" type="button">+ Zoom</button>
           </div>
         </div>
 
@@ -64,11 +64,9 @@
           <button id="deleteMarker" type="button">Delete Marker</button>
           <button id="undoChange" type="button" disabled>Undo</button>
           <button id="redoChange" type="button" disabled>Redo</button>
-          <button id="saveChanges" type="button" style="display: none;">
-            Save Changes
-          </button>
         </div>
 
+        <button id="saveChanges" type="button" disabled>Save Changes</button>
         <button id="analyzeButton" type="button">Analyze</button>
       </section>
 
@@ -87,6 +85,10 @@
           </thead>
           <tbody></tbody>
         </table>
+        <div id="exportControls" hidden>
+          <button id="exportPdfButton" type="button">Export .pdf</button>
+          <button id="exportXlsButton" type="button">Export .xls</button>
+        </div>
       </section>
     </main>
 
