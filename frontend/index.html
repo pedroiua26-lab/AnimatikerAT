@@ -21,10 +21,6 @@
 
         <label for="videoFile">Animatic File</label>
         <input id="videoFile" type="file" accept="video/*" />
-        <div id="videoPreview" class="video-preview" hidden>
-          <p>Thumbnail (first second)</p>
-          <img id="thumbnail" alt="Preview frame of the selected video" />
-        </div>
 
         <video id="videoPlayer" controls style="width:100%; max-width:800px;"></video>
 
@@ -85,6 +81,8 @@
               <th>Start Frame</th>
               <th>End Frame</th>
               <th>Duration (Frames)</th>
+              <th>Start Timecode</th>
+              <th>End Timecode</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -92,6 +90,7 @@
         <div id="exportControls" hidden>
           <button id="exportPdfButton" type="button">Export .pdf</button>
           <button id="exportXlsButton" type="button">Export .xls</button>
+          <button id="exportXlsxButton" type="button">Export .xlsx</button>
         </div>
       </section>
     </main>
