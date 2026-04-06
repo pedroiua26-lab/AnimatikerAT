@@ -113,20 +113,16 @@ function formatFps(fpsValue) {
 function updateFrameDisplays() {
   const currentFrame = Math.max(0, timeToFrame(videoPlayer.currentTime));
   const lastFrame = getVideoLastFrame();
+  const hasFrames = lastFrame >= 0;
+  const displayedCurrentFrame = hasFrames ? Math.min(currentFrame, lastFrame) + 1 : 0;
 
-  currentFrameDisplay.textContent = String(Math.min(currentFrame, lastFrame));
+  currentFrameDisplay.textContent = String(displayedCurrentFrame);
   totalFramesDisplay.textContent = String(lastFrame + 1);
   fpsDisplay.textContent = formatFps(detectedVideoFps);
 }
 
 function enforceFirstMarkerStartFrame() {
   if (!markers.length) {
-    return;
-  }
-
-  const lastFrame = getVideoLastFrame();
-  if (lastFrame >= 1) {
-    markers[0].frame = Math.max(1, Math.min(markers[0].frame, lastFrame));
     return;
   }
 
@@ -526,10 +522,14 @@ function updateTable() {
     const nextStart = i < markers.length - 1 ? markers[i + 1].frame : lastVideoFrame + 1;
     const end = Math.min(lastVideoFrame, nextStart - 1);
     const duration = Math.max(0, end - start + 1);
+    const displayedStartFrame = start + 1;
+    const displayedEndFrame = end + 1;
     const sceneData = {
       scene: i + 1,
-      startFrame: start,
-      endFrame: end,
+      startFrame: displayedStartFrame,
+      endFrame: displayedEndFrame,
+      sourceStartFrame: start,
+      sourceEndFrame: end,
       durationFrames: duration,
       startTimecode: formatFrameAsTimecode(sequenceStartOffset + start),
       endTimecode: formatFrameAsTimecode(sequenceStartOffset + end),
@@ -762,8 +762,8 @@ async function collectSceneFrameImages() {
   return withVideoStateRestored(async () => {
     const rowsWithImages = [];
     for (const sceneData of sceneRows) {
-      const startImage = await captureFrameImageAtFrame(sceneData.startFrame);
-      const endImage = await captureFrameImageAtFrame(sceneData.endFrame);
+      const startImage = await captureFrameImageAtFrame(sceneData.sourceStartFrame);
+      const endImage = await captureFrameImageAtFrame(sceneData.sourceEndFrame);
       rowsWithImages.push({
         ...sceneData,
         startImage,
