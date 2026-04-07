@@ -19,15 +19,11 @@
       </section>
     </main>
     <script>
-      const DEFAULT_API_BASE = window.ANIMATIC_API_BASE || "https://animatic-analyzer-api.onrender.com";
+      const API_BASE = (window.ANIMATIC_API_BASE || "https://animatic-analyzer-api.onrender.com").replace(/\/$/, "");
       const passwordInput = document.getElementById("password");
       const confirmPasswordInput = document.getElementById("confirmPassword");
       const verifyButton = document.getElementById("verifyButton");
       const statusEl = document.getElementById("status");
-
-      function getApiBase() {
-        return (localStorage.getItem("animaticApiBase") || DEFAULT_API_BASE).replace(/\/$/, "");
-      }
 
       function setStatus(message, type = "info") {
         statusEl.textContent = message;
@@ -52,7 +48,7 @@
         setStatus("Verifying account… this may take up to 30 seconds if the server is starting up.", "info");
 
         try {
-          const response = await fetch(`${getApiBase()}/verify`, {
+          const response = await fetch(`${API_BASE}/verify`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ token, password: passwordInput.value }),
