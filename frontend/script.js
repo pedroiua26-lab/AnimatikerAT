@@ -1039,8 +1039,7 @@ function requireAuth(actionDescription) {
   }
 
   closeModal();
-  setStatus(`Please login first to ${actionDescription}.`, "error");
-  window.location.href = "login.html";
+  setStatus(`Login required to ${actionDescription}. You can keep using the app, but project saving/loading is disabled.`, "error");
   return false;
 }
 
