@@ -25,6 +25,7 @@
       const apiBaseInput = document.getElementById("apiBaseUrl");
       const passwordInput = document.getElementById("password");
       const confirmPasswordInput = document.getElementById("confirmPassword");
+      const verifyButton = document.getElementById("verifyButton");
       const statusEl = document.getElementById("status");
       apiBaseInput.value = localStorage.getItem("animaticApiBase") || DEFAULT_API_BASE;
 
@@ -33,34 +34,65 @@
         statusEl.className = `status ${type}`;
       }
 
-      document.getElementById("verifyButton").onclick = async () => {
-        const token = new URLSearchParams(window.location.search).get("token");
+      function setError(message) {
+        setStatus(message, "error");
+      }
+
+      verifyButton.onclick = async () => {
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get("token");
         if (!token) {
-          setStatus("Verification token is missing.", "error");
+          setError("Verification token is missing.");
           return;
         }
 
         if (passwordInput.value !== confirmPasswordInput.value) {
-          setStatus("Passwords do not match.", "error");
+          setError("Passwords do not match.");
           return;
         }
 
+        verifyButton.disabled = true;
+        verifyButton.textContent = "Verifying...";
+        setStatus("Verifying account...", "info");
+
+        let timeoutId = null;
         try {
           const apiBase = apiBaseInput.value.trim().replace(/\/$/, "");
           localStorage.setItem("animaticApiBase", apiBase);
-          const response = await fetch(`${apiBase}/verify`, {
+          const url = `${apiBase}/verify`;
+          const body = {
+            token,
+            password: passwordInput.value.trim(),
+          };
+          console.log("VERIFY REQUEST:", url, body);
+
+          const controller = new AbortController();
+          timeoutId = setTimeout(() => controller.abort(), 10000);
+
+          const response = await fetch(url, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token, password: passwordInput.value.trim() }),
+            body: JSON.stringify(body),
+            signal: controller.signal,
           });
+          clearTimeout(timeoutId);
+          timeoutId = null;
+
           const payload = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(payload.detail || "Verification failed");
           setStatus("Verification complete. Redirecting to login...", "success");
           setTimeout(() => {
             window.location.href = "login.html";
           }, 800);
-        } catch (error) {
-          setStatus(error.message, "error");
+        } catch (err) {
+          console.error("VERIFY ERROR:", err);
+          setError(err.message || "Verify failed");
+        } finally {
+          if (typeof timeoutId !== "undefined" && timeoutId !== null) {
+            clearTimeout(timeoutId);
+          }
+          verifyButton.disabled = false;
+          verifyButton.textContent = "Verify account";
         }
       };
     </script>
