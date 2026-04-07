@@ -10,8 +10,6 @@
     <main class="container">
       <section class="panel auth-panel">
         <h1>Verify account</h1>
-        <label for="apiBaseUrl">Backend API URL</label>
-        <input id="apiBaseUrl" type="url" />
         <label for="password">Password (6 digits)</label>
         <input id="password" type="password" maxlength="6" />
         <label for="confirmPassword">Confirm password</label>
@@ -21,76 +19,60 @@
       </section>
     </main>
     <script>
-      const DEFAULT_API_BASE = window.ANIMATIC_API_BASE || "http://127.0.0.1:8000";
-      const apiBaseInput = document.getElementById("apiBaseUrl");
+      const DEFAULT_API_BASE = window.ANIMATIC_API_BASE || "https://animatic-analyzer-api.onrender.com";
       const passwordInput = document.getElementById("password");
       const confirmPasswordInput = document.getElementById("confirmPassword");
       const verifyButton = document.getElementById("verifyButton");
       const statusEl = document.getElementById("status");
-      apiBaseInput.value = localStorage.getItem("animaticApiBase") || DEFAULT_API_BASE;
+
+      function getApiBase() {
+        return (localStorage.getItem("animaticApiBase") || DEFAULT_API_BASE).replace(/\/$/, "");
+      }
 
       function setStatus(message, type = "info") {
         statusEl.textContent = message;
         statusEl.className = `status ${type}`;
       }
 
-      function setError(message) {
-        setStatus(message, "error");
-      }
-
       verifyButton.onclick = async () => {
         const params = new URLSearchParams(window.location.search);
         const token = params.get("token");
         if (!token) {
-          setError("Verification token is missing.");
+          setStatus("Verification token is missing.", "error");
           return;
         }
 
         if (passwordInput.value !== confirmPasswordInput.value) {
-          setError("Passwords do not match.");
+          setStatus("Passwords do not match.", "error");
           return;
         }
 
         verifyButton.disabled = true;
         verifyButton.textContent = "Verifying...";
-        setStatus("Verifying account...", "info");
+        setStatus("Verifying account… this may take up to 30 seconds if the server is starting up.", "info");
 
-        let timeoutId = null;
         try {
-          const apiBase = apiBaseInput.value.trim().replace(/\/$/, "");
-          localStorage.setItem("animaticApiBase", apiBase);
-          const url = `${apiBase}/verify`;
-          const body = {
-            token,
-            password: passwordInput.value.trim(),
-          };
-          console.log("VERIFY REQUEST:", url, body);
-
-          const controller = new AbortController();
-          timeoutId = setTimeout(() => controller.abort(), 10000);
-
-          const response = await fetch(url, {
+          const response = await fetch(`${getApiBase()}/verify`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-            signal: controller.signal,
+            body: JSON.stringify({ token, password: passwordInput.value }),
           });
-          clearTimeout(timeoutId);
-          timeoutId = null;
 
           const payload = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(payload.detail || "Verification failed");
+          if (!response.ok) {
+            throw new Error(payload.detail || "Verification failed");
+          }
+
           setStatus("Verification complete. Redirecting to login...", "success");
           setTimeout(() => {
             window.location.href = "login.html";
-          }, 800);
+          }, 1200);
         } catch (err) {
-          console.error("VERIFY ERROR:", err);
-          setError(err.message || "Verify failed");
+          const message = err.name === "AbortError"
+            ? "Request timed out. The server may be starting up — please try again in a moment."
+            : (err.message || "Failed to verify. Please try again.");
+          setStatus(message, "error");
         } finally {
-          if (typeof timeoutId !== "undefined" && timeoutId !== null) {
-            clearTimeout(timeoutId);
-          }
           verifyButton.disabled = false;
           verifyButton.textContent = "Verify account";
         }
