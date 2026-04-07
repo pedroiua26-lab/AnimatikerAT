@@ -22,14 +22,10 @@
       </section>
     </main>
     <script>
-      const DEFAULT_API_BASE = window.ANIMATIC_API_BASE || "https://animatic-analyzer-api.onrender.com";
+      const API_BASE = (window.ANIMATIC_API_BASE || "https://animatic-analyzer-api.onrender.com").replace(/\/$/, "");
       const emailInput = document.getElementById("email");
       const passwordInput = document.getElementById("password");
       const statusEl = document.getElementById("status");
-
-      function getApiBase() {
-        return (localStorage.getItem("animaticApiBase") || DEFAULT_API_BASE).replace(/\/$/, "");
-      }
 
       function setStatus(message, type = "info") {
         statusEl.textContent = message;
@@ -37,7 +33,7 @@
       }
 
       async function post(path, body) {
-        const response = await fetch(`${getApiBase()}${path}`, {
+        const response = await fetch(`${API_BASE}${path}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
