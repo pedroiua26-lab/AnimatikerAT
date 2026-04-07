@@ -115,7 +115,9 @@ app = FastAPI(title="Animatic Analyzer API", version="1.2.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://pedroiua26-lab.github.io"],
+    allow_origins=[
+        "https://pedroiua26-lab.github.io",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -218,7 +220,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> dict[st
 
 
 @app.post("/verify")
-def verify(payload: VerifyRequest, db: Session = Depends(get_db)) -> dict[str, str]:
+def verify(payload: VerifyRequest, db: Session = Depends(get_db)) -> dict[str, bool]:
     validate_password(payload.password)
     user = db.query(User).filter(User.verification_token == payload.token).first()
     if not user:
@@ -228,7 +230,7 @@ def verify(payload: VerifyRequest, db: Session = Depends(get_db)) -> dict[str, s
     user.is_verified = True
     user.verification_token = None
     db.commit()
-    return {"message": "Email verified successfully."}
+    return {"success": True}
 
 
 @app.post("/login")
