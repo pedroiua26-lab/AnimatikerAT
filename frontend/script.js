@@ -1039,8 +1039,17 @@ function requireAuth(actionDescription) {
   }
 
   closeModal();
-  setStatus(`Login required to ${actionDescription}. You can keep using the app, but project saving/loading is disabled.`, "error");
+  setStatus(`Login required to ${actionDescription}. You can keep using the app, but project saving/loading is disabled.`, "info");
   return false;
+}
+
+function handleAuthExpired() {
+  localStorage.removeItem("token");
+  closeModal();
+  updateProjectActionAvailability();
+  if (userEmailEl) {
+    userEmailEl.textContent = "Not logged in";
+  }
 }
 
 async function authorizedFetch(path, options = {}) {
@@ -1062,7 +1071,9 @@ async function authorizedFetch(path, options = {}) {
 
   const payload = await parseResponse(response);
   if (!response.ok) {
-    throw new Error(payload.detail || "Request failed.");
+    const error = new Error(payload.detail || "Request failed.");
+    error.status = response.status;
+    throw error;
   }
   return payload;
 }
@@ -1084,9 +1095,7 @@ async function refreshCurrentUser() {
     userEmailEl.textContent = me.email || "Logged in";
     updateProjectActionAvailability();
   } catch {
-    userEmailEl.textContent = "Session expired";
-    localStorage.removeItem("token");
-    updateProjectActionAvailability();
+    handleAuthExpired();
   }
 }
 
@@ -1118,8 +1127,12 @@ async function saveProject() {
     });
     setStatus("Project saved.", "success");
   } catch (error) {
-    setStatus(`Save failed: ${error.message}`, "error");
-    alert(error.message);
+    if (error.status === 401 || error.status === 403) {
+      handleAuthExpired();
+      setStatus("Session expired. You can continue using analysis tools without logging in.", "info");
+    } else {
+      setStatus(`Save failed: ${error.message}`, "error");
+    }
   } finally {
     saveProjectButton.disabled = false;
   }
@@ -1172,8 +1185,12 @@ async function openLoadProjectsModal() {
           updateTable();
           closeModal();
           setStatus(`Project loaded: ${detail.name}. Re-upload video: ${detail.video_name}`, "success");
-          alert(`Project loaded. Please re-upload video file: ${detail.video_name}`);
         } catch (error) {
+          if (error.status === 401 || error.status === 403) {
+            handleAuthExpired();
+            setStatus("Session expired. You can continue using analysis tools without logging in.", "info");
+            return;
+          }
           setStatus(`Load failed: ${error.message}`, "error");
         }
       };
@@ -1183,6 +1200,11 @@ async function openLoadProjectsModal() {
       projectList.appendChild(item);
     });
   } catch (error) {
+    if (error.status === 401 || error.status === 403) {
+      handleAuthExpired();
+      setStatus("Session expired. You can continue using analysis tools without logging in.", "info");
+      return;
+    }
     projectList.innerHTML = `<div>Error: ${error.message}</div>`;
   }
 }
