@@ -1019,6 +1019,31 @@ function getAuthToken() {
   return localStorage.getItem("token") || "";
 }
 
+function hasAuthToken() {
+  return Boolean(getAuthToken());
+}
+
+function updateProjectActionAvailability() {
+  const authenticated = hasAuthToken();
+  if (saveProjectButton) {
+    saveProjectButton.disabled = !authenticated;
+  }
+  if (loadProjectButton) {
+    loadProjectButton.disabled = !authenticated;
+  }
+}
+
+function requireAuth(actionDescription) {
+  if (hasAuthToken()) {
+    return true;
+  }
+
+  closeModal();
+  setStatus(`Please login first to ${actionDescription}.`, "error");
+  window.location.href = "login.html";
+  return false;
+}
+
 async function authorizedFetch(path, options = {}) {
   const token = getAuthToken();
   if (!token) {
@@ -1051,19 +1076,26 @@ async function refreshCurrentUser() {
   const token = getAuthToken();
   if (!token) {
     userEmailEl.textContent = "Not logged in";
+    updateProjectActionAvailability();
     return;
   }
 
   try {
     const me = await authorizedFetch("/me");
     userEmailEl.textContent = me.email || "Logged in";
+    updateProjectActionAvailability();
   } catch {
     userEmailEl.textContent = "Session expired";
     localStorage.removeItem("token");
+    updateProjectActionAvailability();
   }
 }
 
 async function saveProject() {
+  if (!requireAuth("save projects")) {
+    return;
+  }
+
   const projectName = window.prompt("Project name:");
   if (!projectName) {
     return;
@@ -1102,6 +1134,10 @@ function closeModal() {
 
 async function openLoadProjectsModal() {
   if (!projectModal || !projectList) {
+    return;
+  }
+
+  if (!requireAuth("load projects")) {
     return;
   }
 
@@ -1496,6 +1532,7 @@ analyzeButton.addEventListener("click", analyzeAnimatic);
 updateTimeline();
 updateFrameDisplays();
 resetHistoryWithCurrentState();
+updateProjectActionAvailability();
 
 
 if (logoutButton) {
