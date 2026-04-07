@@ -321,6 +321,10 @@ th {
   justify-content: center;
 }
 
+.modal[hidden] {
+  display: none;
+}
+
 .modal-content {
   width: min(640px, 90vw);
   background: #1f2937;
