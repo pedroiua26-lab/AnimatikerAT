@@ -32,6 +32,7 @@ const exportCsvButton = document.getElementById("exportCsvButton");
 const exportXlsButton = document.getElementById("exportXlsButton");
 const exportXlsxButton = document.getElementById("exportXlsxButton");
 const userEmailEl = document.getElementById("userEmail");
+const loginButton = document.getElementById("loginButton");
 const logoutButton = document.getElementById("logoutButton");
 const saveProjectButton = document.getElementById("saveProjectButton");
 const loadProjectButton = document.getElementById("loadProjectButton");
@@ -1031,6 +1032,12 @@ function updateProjectActionAvailability() {
   if (loadProjectButton) {
     loadProjectButton.disabled = !authenticated;
   }
+  if (loginButton) {
+    loginButton.hidden = authenticated;
+  }
+  if (logoutButton) {
+    logoutButton.hidden = !authenticated;
+  }
 }
 
 function requireAuth(actionDescription) {
@@ -1091,12 +1098,24 @@ async function refreshCurrentUser() {
   }
 
   try {
-    const me = await authorizedFetch("/me");
-    userEmailEl.textContent = me.email || "Logged in";
-    updateProjectActionAvailability();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const apiBaseUrl = apiBaseInput.value.trim().replace(/\/$/, "");
+    const response = await fetch(`${apiBaseUrl}/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (response.ok) {
+      const me = await response.json();
+      userEmailEl.textContent = me.email || "Logged in";
+    } else {
+      handleAuthExpired();
+    }
   } catch {
     handleAuthExpired();
   }
+  updateProjectActionAvailability();
 }
 
 async function saveProject() {
@@ -1559,7 +1578,8 @@ updateProjectActionAvailability();
 if (logoutButton) {
   logoutButton.addEventListener("click", () => {
     localStorage.removeItem("token");
-    window.location.href = "login.html";
+    handleAuthExpired();
+    setStatus("You have been logged out. You can continue using the app.", "info");
   });
 }
 
