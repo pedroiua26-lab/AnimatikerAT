@@ -8,7 +8,17 @@
   </head>
   <body>
     <main class="container">
-      <h1>Animatic Analyzer</h1>
+      <header class="top-bar">
+        <div>
+          <strong>Animatic Analyzer</strong>
+          <div id="userEmail">Not logged in</div>
+        </div>
+        <div class="top-bar-actions">
+          <a class="button-link" href="login.html">Login</a>
+          <button id="logoutButton" type="button">Logout</button>
+        </div>
+      </header>
+
       <p>Upload an animatic video and detect shot boundaries automatically.</p>
 
       <section class="panel">
@@ -78,6 +88,11 @@
           <button id="redoChange" type="button" disabled>Redo</button>
         </div>
 
+        <div id="projectControls">
+          <button id="saveProjectButton" type="button">Save Project</button>
+          <button id="loadProjectButton" type="button">Load Project</button>
+        </div>
+
         <button id="saveChanges" type="button" disabled>Save Changes</button>
         <button id="analyzeButton" type="button">Analyze</button>
       </section>
@@ -110,6 +125,14 @@
         </div>
       </section>
     </main>
+
+    <div id="projectModal" class="modal" hidden>
+      <div class="modal-content">
+        <h3>Load Project</h3>
+        <div id="projectList"></div>
+        <button id="closeProjectModal" type="button">Close</button>
+      </div>
+    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
