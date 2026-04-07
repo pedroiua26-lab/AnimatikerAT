@@ -31,6 +31,13 @@ const exportPdfButton = document.getElementById("exportPdfButton");
 const exportCsvButton = document.getElementById("exportCsvButton");
 const exportXlsButton = document.getElementById("exportXlsButton");
 const exportXlsxButton = document.getElementById("exportXlsxButton");
+const userEmailEl = document.getElementById("userEmail");
+const logoutButton = document.getElementById("logoutButton");
+const saveProjectButton = document.getElementById("saveProjectButton");
+const loadProjectButton = document.getElementById("loadProjectButton");
+const projectModal = document.getElementById("projectModal");
+const projectList = document.getElementById("projectList");
+const closeProjectModal = document.getElementById("closeProjectModal");
 
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 20;
@@ -1007,6 +1014,144 @@ async function parseResponse(response) {
   }
 }
 
+
+function getAuthToken() {
+  return localStorage.getItem("token") || "";
+}
+
+async function authorizedFetch(path, options = {}) {
+  const token = getAuthToken();
+  if (!token) {
+    throw new Error("You must login first.");
+  }
+
+  const apiBaseUrl = apiBaseInput.value.trim().replace(/\/$/, "");
+  const headers = {
+    ...(options.headers || {}),
+    Authorization: `Bearer ${token}`,
+  };
+
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    ...options,
+    headers,
+  });
+
+  const payload = await parseResponse(response);
+  if (!response.ok) {
+    throw new Error(payload.detail || "Request failed.");
+  }
+  return payload;
+}
+
+async function refreshCurrentUser() {
+  if (!userEmailEl) {
+    return;
+  }
+
+  const token = getAuthToken();
+  if (!token) {
+    userEmailEl.textContent = "Not logged in";
+    return;
+  }
+
+  try {
+    const me = await authorizedFetch("/me");
+    userEmailEl.textContent = me.email || "Logged in";
+  } catch {
+    userEmailEl.textContent = "Session expired";
+    localStorage.removeItem("token");
+  }
+}
+
+async function saveProject() {
+  const projectName = window.prompt("Project name:");
+  if (!projectName) {
+    return;
+  }
+
+  const file = videoInput.files[0];
+  const payload = {
+    name: projectName.trim(),
+    video_name: file ? file.name : "(re-upload required)",
+    markers,
+    duration: Number(videoPlayer.duration) || 0,
+  };
+
+  saveProjectButton.disabled = true;
+  setStatus("Saving project...");
+  try {
+    await authorizedFetch("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    setStatus("Project saved.", "success");
+  } catch (error) {
+    setStatus(`Save failed: ${error.message}`, "error");
+    alert(error.message);
+  } finally {
+    saveProjectButton.disabled = false;
+  }
+}
+
+function closeModal() {
+  if (projectModal) {
+    projectModal.hidden = true;
+  }
+}
+
+async function openLoadProjectsModal() {
+  if (!projectModal || !projectList) {
+    return;
+  }
+
+  projectModal.hidden = false;
+  projectList.innerHTML = "<div>Loading projects...</div>";
+
+  try {
+    const projects = await authorizedFetch("/projects");
+    if (!projects.length) {
+      projectList.innerHTML = "<div>No projects found.</div>";
+      return;
+    }
+
+    projectList.innerHTML = "";
+    projects.forEach((project) => {
+      const item = document.createElement("div");
+      item.className = "project-item";
+      const meta = document.createElement("div");
+      meta.innerHTML = `<strong>${project.name}</strong><br><small>${project.video_name}</small>`;
+      const loadBtn = document.createElement("button");
+      loadBtn.type = "button";
+      loadBtn.textContent = "Load";
+      loadBtn.onclick = async () => {
+        try {
+          const detail = await authorizedFetch(`/projects/${project.id}`);
+          markers = Array.isArray(detail.markers) ? detail.markers : [];
+          normalizeMarkers();
+          selectedMarkerIndex = null;
+          selectedMarkerLockedToPlayhead = false;
+          renderMarkers();
+          applyChanges();
+          resetHistoryWithCurrentState();
+          updateTable();
+          closeModal();
+          setStatus(`Project loaded: ${detail.name}. Re-upload video: ${detail.video_name}`, "success");
+          alert(`Project loaded. Please re-upload video file: ${detail.video_name}`);
+        } catch (error) {
+          setStatus(`Load failed: ${error.message}`, "error");
+        }
+      };
+
+      item.appendChild(meta);
+      item.appendChild(loadBtn);
+      projectList.appendChild(item);
+    });
+  } catch (error) {
+    projectList.innerHTML = `<div>Error: ${error.message}</div>`;
+  }
+}
+
 videoInput.addEventListener("change", () => {
   const file = videoInput.files[0];
 
@@ -1351,3 +1496,37 @@ analyzeButton.addEventListener("click", analyzeAnimatic);
 updateTimeline();
 updateFrameDisplays();
 resetHistoryWithCurrentState();
+
+
+if (logoutButton) {
+  logoutButton.addEventListener("click", () => {
+    localStorage.removeItem("token");
+    window.location.href = "login.html";
+  });
+}
+
+if (saveProjectButton) {
+  saveProjectButton.addEventListener("click", () => {
+    saveProject().catch((error) => setStatus(`Save failed: ${error.message}`, "error"));
+  });
+}
+
+if (loadProjectButton) {
+  loadProjectButton.addEventListener("click", () => {
+    openLoadProjectsModal().catch((error) => setStatus(`Load failed: ${error.message}`, "error"));
+  });
+}
+
+if (closeProjectModal) {
+  closeProjectModal.addEventListener("click", closeModal);
+}
+
+if (projectModal) {
+  projectModal.addEventListener("click", (event) => {
+    if (event.target === projectModal) {
+      closeModal();
+    }
+  });
+}
+
+refreshCurrentUser();

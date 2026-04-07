@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verify | Animatic Analyzer</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <section class="panel auth-panel">
+        <h1>Verify account</h1>
+        <label for="apiBaseUrl">Backend API URL</label>
+        <input id="apiBaseUrl" type="url" />
+        <label for="password">Password (6 digits)</label>
+        <input id="password" type="password" maxlength="6" />
+        <label for="confirmPassword">Confirm password</label>
+        <input id="confirmPassword" type="password" maxlength="6" />
+        <button id="verifyButton" type="button">Verify account</button>
+        <div id="status" class="status info">Set your password to finish setup.</div>
+      </section>
+    </main>
+    <script>
+      const DEFAULT_API_BASE = window.ANIMATIC_API_BASE || "http://127.0.0.1:8000";
+      const apiBaseInput = document.getElementById("apiBaseUrl");
+      const passwordInput = document.getElementById("password");
+      const confirmPasswordInput = document.getElementById("confirmPassword");
+      const statusEl = document.getElementById("status");
+      apiBaseInput.value = localStorage.getItem("animaticApiBase") || DEFAULT_API_BASE;
+
+      function setStatus(message, type = "info") {
+        statusEl.textContent = message;
+        statusEl.className = `status ${type}`;
+      }
+
+      document.getElementById("verifyButton").onclick = async () => {
+        const token = new URLSearchParams(window.location.search).get("token");
+        if (!token) {
+          setStatus("Verification token is missing.", "error");
+          return;
+        }
+
+        if (passwordInput.value !== confirmPasswordInput.value) {
+          setStatus("Passwords do not match.", "error");
+          return;
+        }
+
+        try {
+          const apiBase = apiBaseInput.value.trim().replace(/\/$/, "");
+          localStorage.setItem("animaticApiBase", apiBase);
+          const response = await fetch(`${apiBase}/verify`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token, password: passwordInput.value.trim() }),
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(payload.detail || "Verification failed");
+          setStatus("Verification complete. Redirecting to login...", "success");
+          setTimeout(() => {
+            window.location.href = "login.html";
+          }, 800);
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      };
+    </script>
+  </body>
+</html>
