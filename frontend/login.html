@@ -10,8 +10,6 @@
     <main class="container">
       <section class="panel auth-panel">
         <h1>Login</h1>
-        <label for="apiBaseUrl">Backend API URL</label>
-        <input id="apiBaseUrl" type="url" />
         <label for="email">Email</label>
         <input id="email" type="email" />
         <label for="password">Password (6 digits)</label>
@@ -24,12 +22,14 @@
       </section>
     </main>
     <script>
-      const DEFAULT_API_BASE = window.ANIMATIC_API_BASE || "http://127.0.0.1:8000";
-      const apiBaseInput = document.getElementById("apiBaseUrl");
+      const DEFAULT_API_BASE = window.ANIMATIC_API_BASE || "https://animatic-analyzer-api.onrender.com";
       const emailInput = document.getElementById("email");
       const passwordInput = document.getElementById("password");
       const statusEl = document.getElementById("status");
-      apiBaseInput.value = localStorage.getItem("animaticApiBase") || DEFAULT_API_BASE;
+
+      function getApiBase() {
+        return (localStorage.getItem("animaticApiBase") || DEFAULT_API_BASE).replace(/\/$/, "");
+      }
 
       function setStatus(message, type = "info") {
         statusEl.textContent = message;
@@ -37,9 +37,7 @@
       }
 
       async function post(path, body) {
-        const apiBase = apiBaseInput.value.trim().replace(/\/$/, "");
-        localStorage.setItem("animaticApiBase", apiBase);
-        const response = await fetch(`${apiBase}${path}`, {
+        const response = await fetch(`${getApiBase()}${path}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),

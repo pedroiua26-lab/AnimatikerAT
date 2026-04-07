@@ -113,11 +113,13 @@ class UpdateProjectRequest(BaseModel):
 
 app = FastAPI(title="Animatic Analyzer API", version="1.2.0")
 
+_default_origins = "https://pedroiua26-lab.github.io"
+_extra_origins = os.getenv("ALLOWED_ORIGINS", "")
+_allowed_origins = [o.strip() for o in (_default_origins + "," + _extra_origins).split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://pedroiua26-lab.github.io",
-    ],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
