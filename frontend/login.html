@@ -29,8 +29,17 @@
       const loginButton = document.getElementById("loginButton");
       const registerButton = document.getElementById("registerButton");
 
-      // Ping /health on page load to wake the server while the user types.
-      fetch(`${API_BASE}/health`, { cache: "no-store" }).catch(() => null);
+      // Repeatedly ping /health while the user types so Render's free-tier
+      // server wakes up before the actual request is sent.
+      (function warmUp() {
+        let tries = 0;
+        function ping() {
+          fetch(`${API_BASE}/health`, { cache: "no-store" }).catch(() => {
+            if (++tries < 5) setTimeout(ping, 8000);
+          });
+        }
+        ping();
+      })();
 
       function setStatus(message, type = "info") {
         statusEl.textContent = message;
@@ -38,25 +47,35 @@
       }
 
       async function post(path, body) {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 60000);
-        try {
-          const response = await fetch(`${API_BASE}${path}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-            signal: controller.signal,
-          });
-          const payload = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(payload.detail || "Request failed");
-          return payload;
-        } catch (err) {
-          if (err.name === "AbortError" || err.message === "Failed to fetch") {
-            throw new Error("Server unavailable. It may be starting up (can take ~30s on free tier) — please wait a moment and try again.");
+        const MAX_ATTEMPTS = 2;
+        const RETRY_DELAY_MS = 15000;
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 50000);
+          try {
+            const response = await fetch(`${API_BASE}${path}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+              signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(payload.detail || "Request failed");
+            return payload;
+          } catch (err) {
+            clearTimeout(timeoutId);
+            const isNetworkErr = err.name === "AbortError" || err.message === "Failed to fetch";
+            if (isNetworkErr && attempt < MAX_ATTEMPTS) {
+              setStatus("Server starting up — retrying in 15s…", "info");
+              await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+              continue;
+            }
+            if (isNetworkErr) {
+              throw new Error("Server unavailable. Please wait ~30s and try again.");
+            }
+            throw err;
           }
-          throw err;
-        } finally {
-          clearTimeout(timeoutId);
         }
       }
 
