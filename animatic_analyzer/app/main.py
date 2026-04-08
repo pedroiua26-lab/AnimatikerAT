@@ -12,7 +12,7 @@ from typing import Annotated
 
 import resend
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 import jwt as _jwt
 from jwt.exceptions import InvalidTokenError as _JWTError
@@ -398,7 +398,11 @@ def delete_project(
 
 
 @app.post("/analyze/")
-async def analyze_video(file: UploadFile = File(...)) -> list[dict[str, int]]:
+async def analyze_video(
+    file: UploadFile = File(...),
+    mode: str = Query(default="animatic", pattern="^(animation|animatic)$"),
+    min_scene_duration_frames: int = Query(default=12, ge=1),
+) -> list[dict[str, int]]:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is required.")
 
@@ -420,7 +424,11 @@ async def analyze_video(file: UploadFile = File(...)) -> list[dict[str, int]]:
         file.file.close()
 
     try:
-        scenes = analyze_scenes(upload_path)
+        scenes = analyze_scenes(
+            upload_path,
+            mode=mode,
+            min_scene_duration_frames=min_scene_duration_frames,
+        )
         write_json_report(output_report_path(upload_path), scenes)
     except SceneDetectionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
