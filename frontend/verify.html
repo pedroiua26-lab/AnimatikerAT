@@ -30,6 +30,10 @@
         statusEl.className = `status ${type}`;
       }
 
+      // Ping /health as soon as the page loads so the server wakes up while the user fills the form.
+      // (Render free tier needs ~30s cold start; this gives it a head start.)
+      let warmUpPromise = fetch(`${API_BASE}/health`, { cache: "no-store" }).catch(() => null);
+
       verifyButton.onclick = async () => {
         const params = new URLSearchParams(window.location.search);
         const token = params.get("token");
@@ -73,8 +77,8 @@
             window.location.href = "login.html";
           }, 1200);
         } catch (err) {
-          const message = err.name === "AbortError"
-            ? "Request timed out. The server may be starting up — please try again in a moment."
+          const message = (err.name === "AbortError" || err.message === "Failed to fetch")
+            ? "Server unavailable. It may be starting up (can take ~30s on free tier) — please wait a moment and try again."
             : (err.message || "Failed to verify. Please try again.");
           setStatus(message, "error");
         } finally {
