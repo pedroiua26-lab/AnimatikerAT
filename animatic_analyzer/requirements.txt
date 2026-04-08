@@ -4,6 +4,7 @@ opencv-python-headless
 scenedetect==0.6.7.1
 python-multipart==0.0.20
 passlib[bcrypt]==1.7.4
+bcrypt<5.0.0
 PyJWT==2.10.1
 sqlalchemy==2.0.43
 resend==2.13.0
