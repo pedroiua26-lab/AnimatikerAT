@@ -9,7 +9,6 @@ import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
-from uuid import uuid4
 
 import resend
 from dotenv import load_dotenv
@@ -48,6 +47,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 PASSWORD_REGEX = re.compile(r"^[0-9]{6}$")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
+VERIFY_TOKEN_EXPIRATION_HOURS = 48
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
 
 
@@ -58,7 +58,6 @@ class User(Base):
     email = Column(String, unique=True, nullable=False, index=True)
     password_hash = Column(String, nullable=True)
     is_verified = Column(Boolean, default=False, nullable=False)
-    verification_token = Column(String, nullable=True, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(UTC), nullable=False)
     projects = relationship("Project", back_populates="user", cascade="all, delete-orphan")
 
@@ -145,6 +144,31 @@ def create_access_token(user_id: int) -> str:
     return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
+def create_verification_token(email: str) -> str:
+    """Return a signed JWT that proves ownership of *email* for verification.
+
+    Storing the token in the database is not needed — the JWT is self-contained
+    and survives server restarts (unlike a UUID stored in ephemeral SQLite).
+    """
+    expires_at = datetime.now(UTC) + timedelta(hours=VERIFY_TOKEN_EXPIRATION_HOURS)
+    payload = {"sub": email, "typ": "verify", "exp": expires_at}
+    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+
+def decode_verification_token(token: str) -> str:
+    """Decode a verification JWT and return the email address it contains."""
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+    except JWTError as exc:
+        raise HTTPException(status_code=400, detail="Invalid or expired verification link. Please register again.") from exc
+    if payload.get("typ") != "verify":
+        raise HTTPException(status_code=400, detail="Invalid verification link.")
+    email = payload.get("sub")
+    if not email:
+        raise HTTPException(status_code=400, detail="Invalid verification link.")
+    return email
+
+
 def get_current_user(
     authorization: Annotated[str | None, Header()] = None,
     db: Session = Depends(get_db),
@@ -206,15 +230,16 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> dict[st
     if existing and existing.is_verified:
         raise HTTPException(status_code=400, detail="Email already registered.")
 
-    token = str(uuid4())
+    # Token is a signed JWT — no need to store it in the database.
+    # This means the token remains valid even if the server restarts and the
+    # SQLite database is wiped (common on Render free tier).
+    token = create_verification_token(payload.email)
+
     if existing:
-        existing.verification_token = token
         existing.is_verified = False
         existing.password_hash = None
-        user = existing
     else:
-        user = User(email=payload.email, verification_token=token, is_verified=False)
-        db.add(user)
+        db.add(User(email=payload.email, is_verified=False))
 
     db.commit()
     send_verification_email(payload.email, token)
@@ -224,13 +249,22 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> dict[st
 @app.post("/verify")
 def verify(payload: VerifyRequest, db: Session = Depends(get_db)) -> dict[str, bool]:
     validate_password(payload.password)
-    user = db.query(User).filter(User.verification_token == payload.token).first()
+    # Decode the JWT — this validates the signature and expiration without any
+    # database lookup. The token is self-contained.
+    email = decode_verification_token(payload.token)
+
+    user = db.query(User).filter(User.email == email).first()
+    if user and user.is_verified:
+        raise HTTPException(status_code=400, detail="Account already verified. Please log in.")
+
     if not user:
-        raise HTTPException(status_code=400, detail="Invalid verification token.")
+        # JWT is valid (proves the email was registered), but the database was
+        # wiped (Render redeploy). Re-create the user so verification can proceed.
+        user = User(email=email, is_verified=False)
+        db.add(user)
 
     user.password_hash = pwd_context.hash(payload.password)
     user.is_verified = True
-    user.verification_token = None
     db.commit()
     return {"success": True}
 
