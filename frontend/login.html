@@ -29,6 +29,9 @@
       const loginButton = document.getElementById("loginButton");
       const registerButton = document.getElementById("registerButton");
 
+      // Ping /health on page load to wake the server while the user types.
+      fetch(`${API_BASE}/health`, { cache: "no-store" }).catch(() => null);
+
       function setStatus(message, type = "info") {
         statusEl.textContent = message;
         statusEl.className = `status ${type}`;
@@ -48,8 +51,8 @@
           if (!response.ok) throw new Error(payload.detail || "Request failed");
           return payload;
         } catch (err) {
-          if (err.name === "AbortError") {
-            throw new Error("Request timed out. The server may be starting up — please try again in a moment.");
+          if (err.name === "AbortError" || err.message === "Failed to fetch") {
+            throw new Error("Server unavailable. It may be starting up (can take ~30s on free tier) — please wait a moment and try again.");
           }
           throw err;
         } finally {
