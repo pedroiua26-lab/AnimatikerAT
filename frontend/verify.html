@@ -10,12 +10,12 @@
     <main class="container">
       <section class="panel auth-panel">
         <h1>Verify account</h1>
-        <label for="password">Password (6 digits)</label>
-        <input id="password" type="password" maxlength="6" />
+        <label for="password">Password (6 numbers only)</label>
+        <input id="password" type="password" maxlength="6" inputmode="numeric" />
         <label for="confirmPassword">Confirm password</label>
-        <input id="confirmPassword" type="password" maxlength="6" />
+        <input id="confirmPassword" type="password" maxlength="6" inputmode="numeric" />
         <button id="verifyButton" type="button">Verify account</button>
-        <div id="status" class="status info">Set your password to finish setup.</div>
+        <div id="status" class="status info">Set your 6-digit password to finish setup.</div>
       </section>
     </main>
     <script>
@@ -30,9 +30,17 @@
         statusEl.className = `status ${type}`;
       }
 
-      // Ping /health as soon as the page loads so the server wakes up while the user fills the form.
-      // (Render free tier needs ~30s cold start; this gives it a head start.)
-      let warmUpPromise = fetch(`${API_BASE}/health`, { cache: "no-store" }).catch(() => null);
+      // Repeatedly ping /health while the user fills the form so Render's
+      // free-tier server wakes up before the verify request is sent.
+      (function warmUp() {
+        let tries = 0;
+        function ping() {
+          fetch(`${API_BASE}/health`, { cache: "no-store" }).catch(() => {
+            if (++tries < 5) setTimeout(ping, 8000);
+          });
+        }
+        ping();
+      })();
 
       verifyButton.onclick = async () => {
         const params = new URLSearchParams(window.location.search);
@@ -41,12 +49,10 @@
           setStatus("Verification token is missing.", "error");
           return;
         }
-
         if (passwordInput.value !== confirmPasswordInput.value) {
           setStatus("Passwords do not match.", "error");
           return;
         }
-
         if (!/^[0-9]{6}$/.test(passwordInput.value)) {
           setStatus("Password must be exactly 6 digits (numbers only).", "error");
           return;
@@ -54,38 +60,64 @@
 
         verifyButton.disabled = true;
         verifyButton.textContent = "Verifying...";
-        setStatus("Verifying account… this may take up to 30 seconds if the server is starting up.", "info");
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 60000);
+        const MAX_ATTEMPTS = 3;
+        const RETRY_DELAY_SECS = 15;
 
-        try {
-          const response = await fetch(`${API_BASE}/verify`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token, password: passwordInput.value }),
-            signal: controller.signal,
-          });
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+          setStatus(
+            attempt === 1
+              ? "Verifying… may take up to 30s if the server is starting up."
+              : `Server starting up — retrying (${attempt}/${MAX_ATTEMPTS})…`,
+            "info"
+          );
 
-          const payload = await response.json().catch(() => ({}));
-          if (!response.ok) {
-            throw new Error(payload.detail || "Verification failed");
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 50000);
+
+          try {
+            const response = await fetch(`${API_BASE}/verify`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ token, password: passwordInput.value }),
+              signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(payload.detail || "Verification failed");
+
+            setStatus("Verification complete. Redirecting to login...", "success");
+            setTimeout(() => { window.location.href = "login.html"; }, 1200);
+            return;
+          } catch (err) {
+            clearTimeout(timeoutId);
+            const isNetworkErr = err.name === "AbortError" || err.message === "Failed to fetch";
+
+            if (isNetworkErr && attempt < MAX_ATTEMPTS) {
+              await new Promise(resolve => {
+                let secs = RETRY_DELAY_SECS;
+                const tick = setInterval(() => {
+                  secs--;
+                  setStatus(`Server starting up — retrying in ${secs}s…`, "info");
+                  if (secs <= 0) { clearInterval(tick); resolve(); }
+                }, 1000);
+              });
+              continue;
+            }
+
+            setStatus(
+              isNetworkErr
+                ? "Server unavailable after multiple attempts. Please wait a minute and try again."
+                : (err.message || "Failed to verify. Please try again."),
+              "error"
+            );
+            break;
           }
-
-          setStatus("Verification complete. Redirecting to login...", "success");
-          setTimeout(() => {
-            window.location.href = "login.html";
-          }, 1200);
-        } catch (err) {
-          const message = (err.name === "AbortError" || err.message === "Failed to fetch")
-            ? "Server unavailable. It may be starting up (can take ~30s on free tier) — please wait a moment and try again."
-            : (err.message || "Failed to verify. Please try again.");
-          setStatus(message, "error");
-        } finally {
-          clearTimeout(timeoutId);
-          verifyButton.disabled = false;
-          verifyButton.textContent = "Verify account";
         }
+
+        verifyButton.disabled = false;
+        verifyButton.textContent = "Verify account";
       };
     </script>
   </body>
