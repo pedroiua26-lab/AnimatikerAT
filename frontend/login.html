@@ -26,6 +26,8 @@
       const emailInput = document.getElementById("email");
       const passwordInput = document.getElementById("password");
       const statusEl = document.getElementById("status");
+      const loginButton = document.getElementById("loginButton");
+      const registerButton = document.getElementById("registerButton");
 
       function setStatus(message, type = "info") {
         statusEl.textContent = message;
@@ -33,29 +35,59 @@
       }
 
       async function post(path, body) {
-        const response = await fetch(`${API_BASE}${path}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.detail || "Request failed");
-        return payload;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+        try {
+          const response = await fetch(`${API_BASE}${path}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(payload.detail || "Request failed");
+          return payload;
+        } catch (err) {
+          if (err.name === "AbortError") {
+            throw new Error("Request timed out. The server may be starting up — please try again in a moment.");
+          }
+          throw err;
+        } finally {
+          clearTimeout(timeoutId);
+        }
       }
 
-      document.getElementById("registerButton").onclick = async () => {
+      registerButton.onclick = async () => {
+        const email = emailInput.value.trim();
+        if (!email) {
+          setStatus("Please enter your email.", "error");
+          return;
+        }
+        registerButton.disabled = true;
+        registerButton.textContent = "Registering...";
+        setStatus("Sending verification email… this may take up to 30 seconds if the server is starting up.", "info");
         try {
-          await post("/register", { email: emailInput.value.trim() });
-          setStatus("Registered. Check your email for verification link.", "success");
+          await post("/register", { email });
+          setStatus("Check your email for the verification link.", "success");
         } catch (error) {
           setStatus(error.message, "error");
+        } finally {
+          registerButton.disabled = false;
+          registerButton.textContent = "Register";
         }
       };
 
-      document.getElementById("loginButton").onclick = async () => {
+      loginButton.onclick = async () => {
+        const email = emailInput.value.trim();
+        if (!email) {
+          setStatus("Please enter your email.", "error");
+          return;
+        }
+        loginButton.disabled = true;
+        loginButton.textContent = "Logging in...";
         try {
           const payload = await post("/login", {
-            email: emailInput.value.trim(),
+            email,
             password: passwordInput.value.trim(),
           });
           localStorage.setItem("token", payload.access_token);
@@ -63,6 +95,9 @@
           window.location.href = "index.html";
         } catch (error) {
           setStatus(error.message, "error");
+        } finally {
+          loginButton.disabled = false;
+          loginButton.textContent = "Login";
         }
       };
     </script>
