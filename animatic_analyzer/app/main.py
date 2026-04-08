@@ -14,7 +14,8 @@ import resend
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from jose import JWTError, jwt
+import jwt as _jwt
+from jwt.exceptions import InvalidTokenError as _JWTError
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, create_engine
@@ -141,7 +142,7 @@ def validate_password(password: str) -> None:
 def create_access_token(user_id: int) -> str:
     expires_at = datetime.now(UTC) + timedelta(hours=JWT_EXPIRATION_HOURS)
     payload = {"sub": str(user_id), "exp": expires_at}
-    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    return _jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
 def create_verification_token(email: str) -> str:
@@ -152,14 +153,14 @@ def create_verification_token(email: str) -> str:
     """
     expires_at = datetime.now(UTC) + timedelta(hours=VERIFY_TOKEN_EXPIRATION_HOURS)
     payload = {"sub": email, "typ": "verify", "exp": expires_at}
-    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    return _jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
 def decode_verification_token(token: str) -> str:
     """Decode a verification JWT and return the email address it contains."""
     try:
-        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
-    except JWTError as exc:
+        payload = _jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+    except _JWTError as exc:
         raise HTTPException(status_code=400, detail="Invalid or expired verification link. Please register again.") from exc
     if payload.get("typ") != "verify":
         raise HTTPException(status_code=400, detail="Invalid verification link.")
@@ -178,9 +179,9 @@ def get_current_user(
 
     token = authorization.replace("Bearer ", "", 1).strip()
     try:
-        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        payload = _jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
         user_id = int(payload.get("sub", "0"))
-    except (JWTError, ValueError) as exc:
+    except (_JWTError, ValueError) as exc:
         raise HTTPException(status_code=401, detail="Invalid token.") from exc
 
     user = db.query(User).filter(User.id == user_id).first()
