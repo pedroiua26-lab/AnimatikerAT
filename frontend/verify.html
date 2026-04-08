@@ -43,15 +43,24 @@
           return;
         }
 
+        if (!/^[0-9]{6}$/.test(passwordInput.value)) {
+          setStatus("Password must be exactly 6 digits (numbers only).", "error");
+          return;
+        }
+
         verifyButton.disabled = true;
         verifyButton.textContent = "Verifying...";
         setStatus("Verifying account… this may take up to 30 seconds if the server is starting up.", "info");
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
 
         try {
           const response = await fetch(`${API_BASE}/verify`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ token, password: passwordInput.value }),
+            signal: controller.signal,
           });
 
           const payload = await response.json().catch(() => ({}));
@@ -69,6 +78,7 @@
             : (err.message || "Failed to verify. Please try again.");
           setStatus(message, "error");
         } finally {
+          clearTimeout(timeoutId);
           verifyButton.disabled = false;
           verifyButton.textContent = "Verify account";
         }
