@@ -75,6 +75,7 @@ class Project(Base):
     duration = Column(Float, nullable=False, default=0.0)
     video_data_url = Column(Text, nullable=True)
     thumbnail_data_url = Column(Text, nullable=True)
+    local_video_path = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(UTC), nullable=False)
     updated_at = Column(
         DateTime,
@@ -107,6 +108,7 @@ class CreateProjectRequest(BaseModel):
     duration: float
     video_data_url: str | None = None
     thumbnail_data_url: str | None = None
+    local_video_path: str | None = None
 
 
 class UpdateProjectRequest(BaseModel):
@@ -116,6 +118,7 @@ class UpdateProjectRequest(BaseModel):
     duration: float
     video_data_url: str | None = None
     thumbnail_data_url: str | None = None
+    local_video_path: str | None = None
 
 
 app = FastAPI(title="Animatic Analyzer API", version="1.2.0")
@@ -267,6 +270,8 @@ def _ensure_project_columns() -> None:
             connection.exec_driver_sql("ALTER TABLE projects ADD COLUMN video_data_url TEXT")
         if "thumbnail_data_url" not in columns:
             connection.exec_driver_sql("ALTER TABLE projects ADD COLUMN thumbnail_data_url TEXT")
+        if "local_video_path" not in columns:
+            connection.exec_driver_sql("ALTER TABLE projects ADD COLUMN local_video_path TEXT")
         connection.commit()
 
 
@@ -296,6 +301,7 @@ async def _extract_project_payload(request: Request) -> CreateProjectRequest:
     markers_text = str(form.get("markers", "[]"))
     duration_text = str(form.get("duration", "0"))
     thumbnail_data_url = str(form.get("thumbnail_data_url", "")).strip() or None
+    local_video_path = str(form.get("local_video_path", "")).strip() or None
     video_file = form.get("video_file")
     video_data_url = _to_data_url(video_file) if isinstance(video_file, UploadFile) else None
 
@@ -318,6 +324,7 @@ async def _extract_project_payload(request: Request) -> CreateProjectRequest:
         duration=duration,
         video_data_url=video_data_url,
         thumbnail_data_url=thumbnail_data_url,
+        local_video_path=local_video_path,
     )
 
 
@@ -410,6 +417,7 @@ async def create_project(
         duration=payload.duration,
         video_data_url=payload.video_data_url,
         thumbnail_data_url=payload.thumbnail_data_url,
+        local_video_path=payload.local_video_path,
     )
     db.add(project)
     db.commit()
@@ -436,6 +444,7 @@ def list_projects(
             "duration": project.duration,
             "thumbnail_data_url": project.thumbnail_data_url,
             "has_video": bool(project.video_data_url),
+            "local_video_path": project.local_video_path,
             "updated_at": project.updated_at.isoformat() if project.updated_at else None,
         }
         for project in projects
@@ -464,6 +473,7 @@ def get_project(
         "duration": project.duration,
         "video_data_url": project.video_data_url,
         "thumbnail_data_url": project.thumbnail_data_url,
+        "local_video_path": project.local_video_path,
     }
 
 
@@ -488,6 +498,7 @@ def update_project(
     project.duration = payload.duration
     project.video_data_url = payload.video_data_url
     project.thumbnail_data_url = payload.thumbnail_data_url
+    project.local_video_path = payload.local_video_path
     project.updated_at = datetime.now(UTC)
     db.commit()
     return {"message": "Project updated."}
