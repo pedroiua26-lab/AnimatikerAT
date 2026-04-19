@@ -39,6 +39,7 @@ const loadProjectButton = document.getElementById("loadProjectButton");
 const projectModal = document.getElementById("projectModal");
 const projectList = document.getElementById("projectList");
 const closeProjectModal = document.getElementById("closeProjectModal");
+const LOCAL_PROJECTS_KEY = "animaticProjectsByEmailV1";
 
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 20;
@@ -1020,6 +1021,53 @@ function getAuthToken() {
   return localStorage.getItem("token") || "";
 }
 
+function readLocalProjectRegistry() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LOCAL_PROJECTS_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLocalProjectRegistry(registry) {
+  localStorage.setItem(LOCAL_PROJECTS_KEY, JSON.stringify(registry));
+}
+
+function getCurrentEmail() {
+  return localStorage.getItem("animaticCurrentUserEmail") || "";
+}
+
+function saveLocalProjectBackup(project) {
+  const email = getCurrentEmail();
+  if (!email || !project || !project.name) {
+    return;
+  }
+
+  const registry = readLocalProjectRegistry();
+  const emailProjects = Array.isArray(registry[email]) ? registry[email] : [];
+  const backup = {
+    id: `local-${Date.now()}`,
+    name: project.name,
+    video_name: project.video_name || "(re-upload required)",
+    markers: Array.isArray(project.markers) ? project.markers : [],
+    duration: Number(project.duration) || 0,
+    saved_at: new Date().toISOString(),
+    source: "local",
+  };
+  registry[email] = [backup, ...emailProjects].slice(0, 30);
+  saveLocalProjectRegistry(registry);
+}
+
+function getLocalProjectsForCurrentEmail() {
+  const email = getCurrentEmail();
+  if (!email) {
+    return [];
+  }
+  const registry = readLocalProjectRegistry();
+  return Array.isArray(registry[email]) ? registry[email] : [];
+}
+
 function hasAuthToken() {
   return Boolean(getAuthToken());
 }
@@ -1109,6 +1157,9 @@ async function refreshCurrentUser() {
     if (response.ok) {
       const me = await response.json();
       userEmailEl.textContent = me.email || "Logged in";
+      if (me.email) {
+        localStorage.setItem("animaticCurrentUserEmail", me.email);
+      }
     } else {
       handleAuthExpired();
     }
@@ -1135,6 +1186,7 @@ async function saveProject() {
     markers,
     duration: Number(videoPlayer.duration) || 0,
   };
+  saveLocalProjectBackup(payload);
 
   saveProjectButton.disabled = true;
   setStatus("Saving project...");
@@ -1144,13 +1196,13 @@ async function saveProject() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    setStatus("Project saved.", "success");
+    setStatus("Project saved in cloud and local backup.", "success");
   } catch (error) {
     if (error.status === 401 || error.status === 403) {
       handleAuthExpired();
-      setStatus("Session expired. You can continue using analysis tools without logging in.", "info");
+      setStatus("Session expired. Project kept in local backup.", "info");
     } else {
-      setStatus(`Save failed: ${error.message}`, "error");
+      setStatus(`Cloud save failed (${error.message}). Project kept in local backup.`, "error");
     }
   } finally {
     saveProjectButton.disabled = false;
@@ -1168,32 +1220,38 @@ async function openLoadProjectsModal() {
     return;
   }
 
-  if (!requireAuth("load projects")) {
-    return;
-  }
-
   projectModal.hidden = false;
   projectList.innerHTML = "<div>Loading projects...</div>";
 
   try {
-    const projects = await authorizedFetch("/projects");
-    if (!projects.length) {
+    const projects = hasAuthToken() ? await authorizedFetch("/projects") : [];
+    const localProjects = getLocalProjectsForCurrentEmail();
+    const allProjects = [
+      ...projects.map((project) => ({ ...project, source: "cloud" })),
+      ...localProjects,
+    ];
+
+    if (!allProjects.length) {
       projectList.innerHTML = "<div>No projects found.</div>";
       return;
     }
 
     projectList.innerHTML = "";
-    projects.forEach((project) => {
+    allProjects.forEach((project) => {
       const item = document.createElement("div");
       item.className = "project-item";
       const meta = document.createElement("div");
-      meta.innerHTML = `<strong>${project.name}</strong><br><small>${project.video_name}</small>`;
+      const sourceLabel = project.source === "local" ? "local backup" : "cloud";
+      meta.innerHTML = `<strong>${project.name}</strong><br><small>${project.video_name} · ${sourceLabel}</small>`;
       const loadBtn = document.createElement("button");
       loadBtn.type = "button";
       loadBtn.textContent = "Load";
       loadBtn.onclick = async () => {
         try {
-          const detail = await authorizedFetch(`/projects/${project.id}`);
+          const detail =
+            project.source === "local"
+              ? project
+              : await authorizedFetch(`/projects/${project.id}`);
           markers = Array.isArray(detail.markers) ? detail.markers : [];
           normalizeMarkers();
           selectedMarkerIndex = null;
@@ -1219,6 +1277,37 @@ async function openLoadProjectsModal() {
       projectList.appendChild(item);
     });
   } catch (error) {
+    const localProjects = getLocalProjectsForCurrentEmail();
+    if (localProjects.length) {
+      projectList.innerHTML = "";
+      localProjects.forEach((project) => {
+        const item = document.createElement("div");
+        item.className = "project-item";
+        const meta = document.createElement("div");
+        meta.innerHTML = `<strong>${project.name}</strong><br><small>${project.video_name} · local backup</small>`;
+        const loadBtn = document.createElement("button");
+        loadBtn.type = "button";
+        loadBtn.textContent = "Load";
+        loadBtn.onclick = async () => {
+          markers = Array.isArray(project.markers) ? project.markers : [];
+          normalizeMarkers();
+          selectedMarkerIndex = null;
+          selectedMarkerLockedToPlayhead = false;
+          renderMarkers();
+          applyChanges();
+          resetHistoryWithCurrentState();
+          updateTable();
+          closeModal();
+          setStatus(`Project loaded: ${project.name}. Re-upload video: ${project.video_name}`, "success");
+        };
+        item.appendChild(meta);
+        item.appendChild(loadBtn);
+        projectList.appendChild(item);
+      });
+      setStatus("Cloud unavailable. Showing locally saved projects.", "info");
+      return;
+    }
+
     if (error.status === 401 || error.status === 403) {
       handleAuthExpired();
       setStatus("Session expired. You can continue using analysis tools without logging in.", "info");

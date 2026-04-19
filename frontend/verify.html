@@ -24,6 +24,20 @@
       const confirmPasswordInput = document.getElementById("confirmPassword");
       const verifyButton = document.getElementById("verifyButton");
       const statusEl = document.getElementById("status");
+      const ACCOUNT_REGISTRY_KEY = "animaticAccountRegistryV1";
+
+      function readAccountRegistry() {
+        try {
+          const parsed = JSON.parse(localStorage.getItem(ACCOUNT_REGISTRY_KEY) || "{}");
+          return parsed && typeof parsed === "object" ? parsed : {};
+        } catch {
+          return {};
+        }
+      }
+
+      function saveAccountRegistry(registry) {
+        localStorage.setItem(ACCOUNT_REGISTRY_KEY, JSON.stringify(registry));
+      }
 
       function setStatus(message, type = "info") {
         statusEl.textContent = message;
@@ -86,6 +100,18 @@
 
             const payload = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(payload.detail || "Verification failed");
+
+            const pendingEmail = localStorage.getItem("animaticPendingEmail") || "";
+            if (pendingEmail) {
+              const registry = readAccountRegistry();
+              registry[pendingEmail] = {
+                email: pendingEmail,
+                password: passwordInput.value,
+                lastUpdatedAt: new Date().toISOString(),
+              };
+              saveAccountRegistry(registry);
+              localStorage.removeItem("animaticPendingEmail");
+            }
 
             setStatus("Verification complete. Redirecting to login...", "success");
             setTimeout(() => { window.location.href = "login.html"; }, 1200);
