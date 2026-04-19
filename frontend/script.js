@@ -52,6 +52,7 @@ const KEY_SCRUB_HOLD_DELAY_MS = 500;
 let markers = [];
 let sceneRows = [];
 let currentVideoUrl = null;
+let loadedProjectDuration = 0;
 let selectedMarkerIndex = null;
 let isDirty = false;
 let zoomLevel = 1;
@@ -68,6 +69,7 @@ let timelineScrubState = null;
 let keyScrubAnimationFrame = null;
 const keyScrubDirections = new Set();
 const keyScrubHoldTimeouts = new Map();
+let preserveMarkersOnNextVideoUpload = false;
 
 const storedApiBase = localStorage.getItem("animaticApiBase");
 apiBaseInput.value = storedApiBase || DEFAULT_API_BASE;
@@ -105,11 +107,24 @@ function frameToTime(frame) {
 }
 
 function getVideoLastFrame() {
-  if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration)) {
+  const effectiveDuration = getEffectiveDuration();
+  if (!effectiveDuration || !Number.isFinite(effectiveDuration)) {
     return 0;
   }
 
-  return Math.max(0, timeToFrame(videoPlayer.duration) - 1);
+  return Math.max(0, timeToFrame(effectiveDuration) - 1);
+}
+
+function getEffectiveDuration() {
+  if (videoPlayer.duration && Number.isFinite(videoPlayer.duration)) {
+    return videoPlayer.duration;
+  }
+
+  if (loadedProjectDuration && Number.isFinite(loadedProjectDuration)) {
+    return loadedProjectDuration;
+  }
+
+  return 0;
 }
 
 function formatFps(fpsValue) {
@@ -366,7 +381,9 @@ function resetVideoSource() {
     currentVideoUrl = null;
   }
   videoPlayer.removeAttribute("src");
+  videoPlayer.removeAttribute("poster");
   videoPlayer.load();
+  loadedProjectDuration = 0;
   detectedVideoFps = FPS;
   fpsProbeActive = false;
   if (fpsProbeRequestId !== null && typeof videoPlayer.cancelVideoFrameCallback === "function") {
@@ -376,6 +393,34 @@ function resetVideoSource() {
   playhead.style.left = "0px";
   frameImageCache.clear();
   updateFrameDisplays();
+}
+
+function buildProjectPlaceholderDataUrl() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1280;
+  canvas.height = 720;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return "";
+  }
+
+  context.fillStyle = "#000000";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#FFFFFF";
+  context.font = "30px 'Times New Roman', Times, serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText("Carregar o vídeo do projeto acima", canvas.width / 2, canvas.height / 2);
+  return canvas.toDataURL("image/png");
+}
+
+function showProjectVideoPlaceholder(projectDuration = 0) {
+  resetVideoSource();
+  loadedProjectDuration = Math.max(0, Number(projectDuration) || 0);
+  const placeholderDataUrl = buildProjectPlaceholderDataUrl();
+  if (placeholderDataUrl) {
+    videoPlayer.poster = placeholderDataUrl;
+  }
 }
 
 function probeVideoFps() {
@@ -519,7 +564,7 @@ function updateTable() {
   tableBody.innerHTML = "";
   sceneRows = [];
 
-  if (!videoPlayer.duration || !Number.isFinite(videoPlayer.duration) || markers.length < 1) {
+  if (!getEffectiveDuration() || markers.length < 1) {
     resultsTable.hidden = true;
     exportControls.hidden = true;
     return;
@@ -1383,6 +1428,7 @@ async function openLoadProjectsModal() {
               ? project
               : await authorizedFetch(`/projects/${project.id}`);
           markers = Array.isArray(detail.markers) ? detail.markers : [];
+          loadedProjectDuration = Math.max(0, Number(detail.duration) || 0);
           normalizeMarkers();
           selectedMarkerIndex = null;
           selectedMarkerLockedToPlayhead = false;
@@ -1390,19 +1436,11 @@ async function openLoadProjectsModal() {
           updateTimeline();
           applyChanges();
           resetHistoryWithCurrentState();
+          preserveMarkersOnNextVideoUpload = true;
+          showProjectVideoPlaceholder(detail.duration);
           closeModal();
-          const loadedVideoFromLocalPath = await setVideoFromLocalPath(
-            detail.local_video_path || project.local_video_path,
-          );
-          const loadedVideoFromCloud =
-            !loadedVideoFromLocalPath && setVideoFromDataUrl(detail.video_data_url, detail.video_name);
-          const loadedVideo = loadedVideoFromLocalPath || loadedVideoFromCloud;
           setStatus(
-            loadedVideo
-              ? loadedVideoFromLocalPath
-                ? `Project loaded: ${detail.name} (video loaded from saved file path).`
-                : `Project loaded: ${detail.name} (video restored from cloud).`
-              : `Project loaded: ${detail.name}. Re-upload video: ${detail.video_name}`,
+            `Project loaded: ${detail.name}. Carregue o vídeo do projeto pelo botão de upload para sincronizar tabela e timeline.`,
             "success",
           );
         } catch (error) {
@@ -1443,6 +1481,7 @@ async function openLoadProjectsModal() {
         loadBtn.textContent = "Load";
         loadBtn.onclick = async () => {
           markers = Array.isArray(project.markers) ? project.markers : [];
+          loadedProjectDuration = Math.max(0, Number(project.duration) || 0);
           normalizeMarkers();
           selectedMarkerIndex = null;
           selectedMarkerLockedToPlayhead = false;
@@ -1450,12 +1489,11 @@ async function openLoadProjectsModal() {
           updateTimeline();
           applyChanges();
           resetHistoryWithCurrentState();
+          preserveMarkersOnNextVideoUpload = true;
+          showProjectVideoPlaceholder(project.duration);
           closeModal();
-          const loadedVideoFromLocalPath = await setVideoFromLocalPath(project.local_video_path);
           setStatus(
-            loadedVideoFromLocalPath
-              ? `Project loaded: ${project.name} (video loaded from saved file path).`
-              : `Project loaded: ${project.name}. Re-upload video: ${project.video_name}`,
+            `Project loaded: ${project.name}. Carregue o vídeo do projeto pelo botão de upload para sincronizar tabela e timeline.`,
             "success",
           );
         };
@@ -1482,6 +1520,7 @@ videoInput.addEventListener("change", () => {
   if (!file) {
     resetVideoSource();
     markers = [];
+    preserveMarkersOnNextVideoUpload = false;
     selectedMarkerIndex = null;
     renderMarkers();
     applyChanges();
@@ -1494,7 +1533,10 @@ videoInput.addEventListener("change", () => {
   videoPlayer.src = currentVideoUrl;
   videoPlayer.load();
 
-  markers = [];
+  if (!preserveMarkersOnNextVideoUpload) {
+    markers = [];
+  }
+  preserveMarkersOnNextVideoUpload = false;
   frameImageCache.clear();
   selectedMarkerIndex = null;
   renderMarkers();
