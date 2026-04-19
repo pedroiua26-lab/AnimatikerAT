@@ -1075,7 +1075,7 @@ function getCurrentVideoLocalPath(file) {
   return "";
 }
 
-function setVideoFromLocalPath(localPath) {
+async function setVideoFromLocalPath(localPath) {
   if (!localPath || typeof localPath !== "string") {
     return false;
   }
@@ -1090,9 +1090,30 @@ function setVideoFromLocalPath(localPath) {
     : `file://${trimmedPath}`;
 
   resetVideoSource();
-  videoPlayer.src = normalizedSrc;
-  videoPlayer.load();
-  return true;
+  return new Promise((resolve) => {
+    let settled = false;
+    const cleanup = () => {
+      videoPlayer.removeEventListener("loadedmetadata", onLoaded);
+      videoPlayer.removeEventListener("error", onError);
+      clearTimeout(timeoutId);
+    };
+    const settle = (ok) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(ok);
+    };
+    const onLoaded = () => settle(true);
+    const onError = () => settle(false);
+    const timeoutId = setTimeout(() => settle(false), 5000);
+
+    videoPlayer.addEventListener("loadedmetadata", onLoaded, { once: true });
+    videoPlayer.addEventListener("error", onError, { once: true });
+    videoPlayer.src = normalizedSrc;
+    videoPlayer.load();
+  });
 }
 
 function getLocalProjectsForCurrentEmail() {
@@ -1370,7 +1391,9 @@ async function openLoadProjectsModal() {
           applyChanges();
           resetHistoryWithCurrentState();
           closeModal();
-          const loadedVideoFromLocalPath = setVideoFromLocalPath(detail.local_video_path || project.local_video_path);
+          const loadedVideoFromLocalPath = await setVideoFromLocalPath(
+            detail.local_video_path || project.local_video_path,
+          );
           const loadedVideoFromCloud =
             !loadedVideoFromLocalPath && setVideoFromDataUrl(detail.video_data_url, detail.video_name);
           const loadedVideo = loadedVideoFromLocalPath || loadedVideoFromCloud;
@@ -1428,7 +1451,7 @@ async function openLoadProjectsModal() {
           applyChanges();
           resetHistoryWithCurrentState();
           closeModal();
-          const loadedVideoFromLocalPath = setVideoFromLocalPath(project.local_video_path);
+          const loadedVideoFromLocalPath = await setVideoFromLocalPath(project.local_video_path);
           setStatus(
             loadedVideoFromLocalPath
               ? `Project loaded: ${project.name} (video loaded from saved file path).`
