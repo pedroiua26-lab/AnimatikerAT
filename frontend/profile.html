@@ -22,10 +22,41 @@
       <section class="panel profile-panel">
         <h1>Perfil do usuário</h1>
         <div id="profileStatus" class="status info">Buscando dados do usuário...</div>
-        <div class="profile-grid">
+
+        <form id="profileSetupForm" class="profile-form" hidden>
+          <h2>Complete seu perfil</h2>
+          <label for="fullNameInput">Nome completo</label>
+          <input id="fullNameInput" type="text" maxlength="120" required />
+
+          <label for="usernameInput">Nome de usuário</label>
+          <input id="usernameInput" type="text" maxlength="40" required />
+
+          <label for="ageInput">Idade</label>
+          <input id="ageInput" type="number" min="1" max="120" required />
+
+          <button id="saveProfileButton" type="submit">Salvar informações</button>
+        </form>
+
+        <div id="profileDetails" class="profile-grid" hidden>
+          <div class="profile-item">
+            <span class="label">Nome completo</span>
+            <strong id="profileFullName">-</strong>
+          </div>
+          <div class="profile-item">
+            <span class="label">Nome de usuário</span>
+            <strong id="profileUsername">-</strong>
+          </div>
+          <div class="profile-item">
+            <span class="label">Idade</span>
+            <strong id="profileAge">-</strong>
+          </div>
           <div class="profile-item">
             <span class="label">Email</span>
             <strong id="profileEmail">-</strong>
+          </div>
+          <div class="profile-item">
+            <span class="label">Senha</span>
+            <strong id="profilePassword">-</strong>
           </div>
         </div>
       </section>
@@ -36,11 +67,24 @@
       const savedApiBase = localStorage.getItem("animaticApiBase");
       const API_BASE = (savedApiBase || DEFAULT_API_BASE).replace(/\/$/, "");
       const token = localStorage.getItem("token");
+      const ACCOUNT_REGISTRY_KEY = "animaticAccountRegistryV1";
+      const PROFILE_REGISTRY_KEY = "animaticProfileRegistryV1";
 
       const userEmailEl = document.getElementById("userEmail");
       const profileEmailEl = document.getElementById("profileEmail");
+      const profilePasswordEl = document.getElementById("profilePassword");
+      const profileFullNameEl = document.getElementById("profileFullName");
+      const profileUsernameEl = document.getElementById("profileUsername");
+      const profileAgeEl = document.getElementById("profileAge");
+      const profileSetupForm = document.getElementById("profileSetupForm");
+      const profileDetails = document.getElementById("profileDetails");
+      const fullNameInput = document.getElementById("fullNameInput");
+      const usernameInput = document.getElementById("usernameInput");
+      const ageInput = document.getElementById("ageInput");
       const statusEl = document.getElementById("profileStatus");
       const logoutButton = document.getElementById("logoutButton");
+
+      let currentEmail = "";
 
       function setStatus(message, type = "info") {
         statusEl.textContent = message;
@@ -55,6 +99,62 @@
         localStorage.removeItem("token");
         localStorage.removeItem("animaticCurrentUserEmail");
         redirectToLogin();
+      }
+
+      function readRegistry(storageKey) {
+        try {
+          const parsed = JSON.parse(localStorage.getItem(storageKey) || "{}");
+          return parsed && typeof parsed === "object" ? parsed : {};
+        } catch {
+          return {};
+        }
+      }
+
+      function saveRegistry(storageKey, data) {
+        localStorage.setItem(storageKey, JSON.stringify(data));
+      }
+
+      function normalizeUsername(value) {
+        return value.trim().replace(/\s+/g, "_").toLowerCase();
+      }
+
+      function maskPassword(password) {
+        if (!password) {
+          return "-";
+        }
+        return "•".repeat(password.length);
+      }
+
+      function showSetupForm() {
+        profileDetails.hidden = true;
+        profileSetupForm.hidden = false;
+      }
+
+      function showProfileDetails() {
+        profileSetupForm.hidden = true;
+        profileDetails.hidden = false;
+      }
+
+      function renderProfile(email) {
+        const accountRegistry = readRegistry(ACCOUNT_REGISTRY_KEY);
+        const profileRegistry = readRegistry(PROFILE_REGISTRY_KEY);
+        const accountSnapshot = accountRegistry[email] || {};
+        const profileSnapshot = profileRegistry[email] || null;
+
+        profileEmailEl.textContent = email || "-";
+        profilePasswordEl.textContent = maskPassword(accountSnapshot.password || "");
+
+        if (!profileSnapshot) {
+          showSetupForm();
+          setStatus("Primeiro acesso ao perfil: preencha suas informações de identificação.", "info");
+          return;
+        }
+
+        profileFullNameEl.textContent = profileSnapshot.fullName || "-";
+        profileUsernameEl.textContent = profileSnapshot.username || "-";
+        profileAgeEl.textContent = profileSnapshot.age || "-";
+        showProfileDetails();
+        setStatus("Perfil carregado com sucesso.", "success");
       }
 
       async function loadProfile() {
@@ -73,19 +173,51 @@
           }
 
           const profile = await response.json();
-          const email = profile.email || localStorage.getItem("animaticCurrentUserEmail") || "-";
-          userEmailEl.textContent = email;
-          profileEmailEl.textContent = email;
+          currentEmail = profile.email || localStorage.getItem("animaticCurrentUserEmail") || "";
+          userEmailEl.textContent = currentEmail || "-";
           if (profile.email) {
             localStorage.setItem("animaticCurrentUserEmail", profile.email);
           }
-          setStatus("Perfil carregado com sucesso.", "success");
+          renderProfile(currentEmail);
         } catch (error) {
           setStatus(error.message || "Não foi possível carregar o perfil.", "error");
           localStorage.removeItem("token");
           setTimeout(redirectToLogin, 1000);
         }
       }
+
+      profileSetupForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+
+        if (!currentEmail) {
+          setStatus("Não foi possível identificar o email do usuário logado.", "error");
+          return;
+        }
+
+        const fullName = fullNameInput.value.trim();
+        const username = normalizeUsername(usernameInput.value);
+        const age = Number.parseInt(ageInput.value, 10);
+
+        if (!fullName || !username || !Number.isFinite(age) || age <= 0) {
+          setStatus("Preencha nome completo, nome de usuário e idade válidos.", "error");
+          return;
+        }
+
+        const profileRegistry = readRegistry(PROFILE_REGISTRY_KEY);
+        profileRegistry[currentEmail] = {
+          fullName,
+          username,
+          age,
+          updatedAt: new Date().toISOString(),
+        };
+        saveRegistry(PROFILE_REGISTRY_KEY, profileRegistry);
+
+        profileFullNameEl.textContent = fullName;
+        profileUsernameEl.textContent = username;
+        profileAgeEl.textContent = String(age);
+        showProfileDetails();
+        setStatus("Informações salvas com sucesso.", "success");
+      });
 
       logoutButton.addEventListener("click", logout);
       loadProfile();
