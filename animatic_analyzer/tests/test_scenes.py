@@ -178,6 +178,24 @@ def test_short_last_scene_merged_into_previous():
     assert scenes[-1]["duration_frames"] == 104
 
 
+
+
+def test_threshold_forwarded_to_adaptive_detector():
+    """threshold arg must be passed as adaptive_threshold to AdaptiveDetector."""
+    mock_cv2 = _make_cv2_mock(total_frames=120)
+    mock_sd = _make_scenedetect_mock(boundaries=[(0, 120)])
+
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setitem(sys.modules, "cv2", mock_cv2)
+        mp.setitem(sys.modules, "scenedetect", mock_sd)
+
+        from app.scenes import analyze_scenes  # noqa: PLC0415
+
+        analyze_scenes(Path("fake.mp4"), threshold=19.5, mode="animation")
+
+    mock_sd.AdaptiveDetector.assert_called_once_with(adaptive_threshold=19.5)
+
+
 def test_scene_detection_error_on_unopenable_video():
     """SceneDetectionError is raised when cv2 cannot open the file."""
     mock_cv2 = MagicMock()
