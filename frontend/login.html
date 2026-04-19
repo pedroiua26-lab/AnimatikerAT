@@ -28,6 +28,46 @@
       const statusEl = document.getElementById("status");
       const loginButton = document.getElementById("loginButton");
       const registerButton = document.getElementById("registerButton");
+      const ACCOUNT_REGISTRY_KEY = "animaticAccountRegistryV1";
+
+      function readAccountRegistry() {
+        try {
+          const parsed = JSON.parse(localStorage.getItem(ACCOUNT_REGISTRY_KEY) || "{}");
+          return parsed && typeof parsed === "object" ? parsed : {};
+        } catch {
+          return {};
+        }
+      }
+
+      function saveAccountRegistry(registry) {
+        localStorage.setItem(ACCOUNT_REGISTRY_KEY, JSON.stringify(registry));
+      }
+
+      function registerAccountSnapshot(email, password = "") {
+        if (!email) {
+          return;
+        }
+        const registry = readAccountRegistry();
+        registry[email] = {
+          email,
+          password,
+          lastUpdatedAt: new Date().toISOString(),
+        };
+        saveAccountRegistry(registry);
+      }
+
+      (function preloadLastAccount() {
+        const currentEmail = localStorage.getItem("animaticCurrentUserEmail") || "";
+        if (!currentEmail) {
+          return;
+        }
+        const registry = readAccountRegistry();
+        const snapshot = registry[currentEmail];
+        emailInput.value = currentEmail;
+        if (snapshot?.password) {
+          passwordInput.value = snapshot.password;
+        }
+      })();
 
       // Repeatedly ping /health while the user types so Render's free-tier
       // server wakes up before the actual request is sent.
@@ -85,6 +125,8 @@
           setStatus("Please enter your email.", "error");
           return;
         }
+        localStorage.setItem("animaticPendingEmail", email);
+        registerAccountSnapshot(email);
         registerButton.disabled = true;
         registerButton.textContent = "Registering...";
         setStatus("Sending verification email… this may take up to 30 seconds if the server is starting up.", "info");
@@ -113,6 +155,7 @@
 
       loginButton.onclick = async () => {
         const email = emailInput.value.trim();
+        const password = passwordInput.value.trim();
         if (!email) {
           setStatus("Please enter your email.", "error");
           return;
@@ -122,9 +165,11 @@
         try {
           const payload = await post("/login", {
             email,
-            password: passwordInput.value.trim(),
+            password,
           });
           localStorage.setItem("token", payload.access_token);
+          localStorage.setItem("animaticCurrentUserEmail", email);
+          registerAccountSnapshot(email, password);
           setStatus("Login successful. Redirecting...", "success");
           window.location.href = "index.html";
         } catch (error) {
