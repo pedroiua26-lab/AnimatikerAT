@@ -33,6 +33,7 @@ const exportXlsButton = document.getElementById("exportXlsButton");
 const exportXlsxButton = document.getElementById("exportXlsxButton");
 const userEmailEl = document.getElementById("userEmail");
 const loginButton = document.getElementById("loginButton");
+const profileButton = document.getElementById("profileButton");
 const logoutButton = document.getElementById("logoutButton");
 const saveProjectButton = document.getElementById("saveProjectButton");
 const loadProjectButton = document.getElementById("loadProjectButton");
@@ -1083,6 +1084,9 @@ function updateProjectActionAvailability() {
   }
   if (loginButton) {
     loginButton.hidden = authenticated;
+  }
+  if (profileButton) {
+    profileButton.hidden = !authenticated;
   }
   if (logoutButton) {
     logoutButton.hidden = !authenticated;

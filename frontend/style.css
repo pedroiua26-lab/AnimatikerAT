@@ -378,3 +378,29 @@ th {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
 }
+
+.profile-panel {
+  max-width: 520px;
+  margin: 1rem auto;
+}
+
+.profile-grid {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.profile-item {
+  background: #111827;
+  border: 1px solid #4b5563;
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.profile-item .label {
+  color: #9ca3af;
+  font-size: 0.8rem;
+}
