@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Perfil | Animatic Analyzer</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="top-bar">
+        <div>
+          <strong>Animatic Analyzer</strong>
+          <div id="userEmail">Carregando perfil...</div>
+        </div>
+        <div class="top-bar-actions">
+          <a class="button-link" href="index.html">Voltar</a>
+          <button id="logoutButton" type="button">Logout</button>
+        </div>
+      </header>
+
+      <section class="panel profile-panel">
+        <h1>Perfil do usuário</h1>
+        <div id="profileStatus" class="status info">Buscando dados do usuário...</div>
+        <div class="profile-grid">
+          <div class="profile-item">
+            <span class="label">Email</span>
+            <strong id="profileEmail">-</strong>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const DEFAULT_API_BASE = (window.ANIMATIC_API_BASE || "http://127.0.0.1:8000").replace(/\/$/, "");
+      const savedApiBase = localStorage.getItem("animaticApiBase");
+      const API_BASE = (savedApiBase || DEFAULT_API_BASE).replace(/\/$/, "");
+      const token = localStorage.getItem("token");
+
+      const userEmailEl = document.getElementById("userEmail");
+      const profileEmailEl = document.getElementById("profileEmail");
+      const statusEl = document.getElementById("profileStatus");
+      const logoutButton = document.getElementById("logoutButton");
+
+      function setStatus(message, type = "info") {
+        statusEl.textContent = message;
+        statusEl.className = `status ${type}`;
+      }
+
+      function redirectToLogin() {
+        window.location.href = "login.html";
+      }
+
+      function logout() {
+        localStorage.removeItem("token");
+        localStorage.removeItem("animaticCurrentUserEmail");
+        redirectToLogin();
+      }
+
+      async function loadProfile() {
+        if (!token) {
+          redirectToLogin();
+          return;
+        }
+
+        try {
+          const response = await fetch(`${API_BASE}/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          if (!response.ok) {
+            throw new Error("Sessão expirada. Faça login novamente.");
+          }
+
+          const profile = await response.json();
+          const email = profile.email || localStorage.getItem("animaticCurrentUserEmail") || "-";
+          userEmailEl.textContent = email;
+          profileEmailEl.textContent = email;
+          if (profile.email) {
+            localStorage.setItem("animaticCurrentUserEmail", profile.email);
+          }
+          setStatus("Perfil carregado com sucesso.", "success");
+        } catch (error) {
+          setStatus(error.message || "Não foi possível carregar o perfil.", "error");
+          localStorage.removeItem("token");
+          setTimeout(redirectToLogin, 1000);
+        }
+      }
+
+      logoutButton.addEventListener("click", logout);
+      loadProfile();
+    </script>
+  </body>
+</html>
