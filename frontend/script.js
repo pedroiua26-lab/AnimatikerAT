@@ -1054,11 +1054,45 @@ function saveLocalProjectBackup(project) {
     markers: Array.isArray(project.markers) ? project.markers : [],
     duration: Number(project.duration) || 0,
     thumbnail_data_url: project.thumbnail_data_url || null,
+    local_video_path: project.local_video_path || "",
+    video_input_value: project.video_input_value || "",
     saved_at: new Date().toISOString(),
     source: "local",
   };
   registry[email] = [backup, ...emailProjects].slice(0, 30);
   saveLocalProjectRegistry(registry);
+}
+
+function getCurrentVideoLocalPath(file) {
+  if (!file) {
+    return "";
+  }
+
+  if (typeof file.path === "string" && file.path.trim()) {
+    return file.path.trim();
+  }
+
+  return "";
+}
+
+function setVideoFromLocalPath(localPath) {
+  if (!localPath || typeof localPath !== "string") {
+    return false;
+  }
+
+  const trimmedPath = localPath.trim();
+  if (!trimmedPath) {
+    return false;
+  }
+
+  const normalizedSrc = /^(file:|https?:|blob:|data:)/i.test(trimmedPath)
+    ? trimmedPath
+    : `file://${trimmedPath}`;
+
+  resetVideoSource();
+  videoPlayer.src = normalizedSrc;
+  videoPlayer.load();
+  return true;
 }
 
 function getLocalProjectsForCurrentEmail() {
@@ -1192,6 +1226,8 @@ async function saveProject() {
     markers,
     duration: Number(videoPlayer.duration) || 0,
     thumbnail_data_url: thumbnailDataUrl,
+    local_video_path: getCurrentVideoLocalPath(file),
+    video_input_value: videoInput.value || "",
   };
   saveLocalProjectBackup(payload);
 
@@ -1205,6 +1241,9 @@ async function saveProject() {
     body.append("duration", String(payload.duration));
     if (payload.thumbnail_data_url) {
       body.append("thumbnail_data_url", payload.thumbnail_data_url);
+    }
+    if (payload.local_video_path) {
+      body.append("local_video_path", payload.local_video_path);
     }
     if (file) {
       body.append("video_file", file, file.name);
@@ -1331,10 +1370,15 @@ async function openLoadProjectsModal() {
           resetHistoryWithCurrentState();
           updateTable();
           closeModal();
-          const loadedVideo = setVideoFromDataUrl(detail.video_data_url, detail.video_name);
+          const loadedVideoFromCloud = setVideoFromDataUrl(detail.video_data_url, detail.video_name);
+          const loadedVideoFromLocalPath =
+            !loadedVideoFromCloud && setVideoFromLocalPath(detail.local_video_path || project.local_video_path);
+          const loadedVideo = loadedVideoFromCloud || loadedVideoFromLocalPath;
           setStatus(
             loadedVideo
-              ? `Project loaded: ${detail.name} (video restored from cloud).`
+              ? loadedVideoFromCloud
+                ? `Project loaded: ${detail.name} (video restored from cloud).`
+                : `Project loaded: ${detail.name} (video found automatically on this computer).`
               : `Project loaded: ${detail.name}. Re-upload video: ${detail.video_name}`,
             "success",
           );
@@ -1384,7 +1428,13 @@ async function openLoadProjectsModal() {
           resetHistoryWithCurrentState();
           updateTable();
           closeModal();
-          setStatus(`Project loaded: ${project.name}. Re-upload video: ${project.video_name}`, "success");
+          const loadedVideoFromLocalPath = setVideoFromLocalPath(project.local_video_path);
+          setStatus(
+            loadedVideoFromLocalPath
+              ? `Project loaded: ${project.name} (video found automatically on this computer).`
+              : `Project loaded: ${project.name}. Re-upload video: ${project.video_name}`,
+            "success",
+          );
         };
         item.appendChild(meta);
         item.appendChild(loadBtn);
