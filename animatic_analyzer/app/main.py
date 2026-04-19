@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -12,7 +13,7 @@ from typing import Annotated
 
 import resend
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 import jwt as _jwt
 from jwt.exceptions import InvalidTokenError as _JWTError
@@ -72,6 +73,8 @@ class Project(Base):
     video_name = Column(String, nullable=False)
     markers_json = Column(Text, nullable=False)
     duration = Column(Float, nullable=False, default=0.0)
+    video_data_url = Column(Text, nullable=True)
+    thumbnail_data_url = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(UTC), nullable=False)
     updated_at = Column(
         DateTime,
@@ -102,6 +105,8 @@ class CreateProjectRequest(BaseModel):
     video_name: str
     markers: list[dict]
     duration: float
+    video_data_url: str | None = None
+    thumbnail_data_url: str | None = None
 
 
 class UpdateProjectRequest(BaseModel):
@@ -109,6 +114,8 @@ class UpdateProjectRequest(BaseModel):
     video_name: str
     markers: list[dict]
     duration: float
+    video_data_url: str | None = None
+    thumbnail_data_url: str | None = None
 
 
 app = FastAPI(title="Animatic Analyzer API", version="1.2.0")
@@ -247,6 +254,71 @@ def send_registration_confirmation_email(email: str) -> bool:
 def startup_event() -> None:
     ensure_directories()
     Base.metadata.create_all(bind=engine)
+    _ensure_project_columns()
+
+
+def _ensure_project_columns() -> None:
+    with engine.connect() as connection:
+        columns = {
+            row[1]
+            for row in connection.exec_driver_sql("PRAGMA table_info(projects)").fetchall()
+        }
+        if "video_data_url" not in columns:
+            connection.exec_driver_sql("ALTER TABLE projects ADD COLUMN video_data_url TEXT")
+        if "thumbnail_data_url" not in columns:
+            connection.exec_driver_sql("ALTER TABLE projects ADD COLUMN thumbnail_data_url TEXT")
+        connection.commit()
+
+
+def _to_data_url(file: UploadFile | None) -> str | None:
+    if not file or not file.filename:
+        return None
+    content = file.file.read()
+    if not content:
+        return None
+    mime = file.content_type or "application/octet-stream"
+    encoded = base64.b64encode(content).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
+async def _extract_project_payload(request: Request) -> CreateProjectRequest:
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" not in content_type:
+        body = await request.json()
+        return CreateProjectRequest(**body)
+
+    form = await request.form()
+    name = str(form.get("name", "")).strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Project name is required.")
+
+    video_name = str(form.get("video_name", "")).strip() or "(re-upload required)"
+    markers_text = str(form.get("markers", "[]"))
+    duration_text = str(form.get("duration", "0"))
+    thumbnail_data_url = str(form.get("thumbnail_data_url", "")).strip() or None
+    video_file = form.get("video_file")
+    video_data_url = _to_data_url(video_file) if isinstance(video_file, UploadFile) else None
+
+    try:
+        markers = json.loads(markers_text)
+        if not isinstance(markers, list):
+            raise ValueError("Markers must be a list.")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid markers payload: {exc}") from exc
+
+    try:
+        duration = float(duration_text)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid duration value.") from exc
+
+    return CreateProjectRequest(
+        name=name,
+        video_name=video_name,
+        markers=markers,
+        duration=duration,
+        video_data_url=video_data_url,
+        thumbnail_data_url=thumbnail_data_url,
+    )
 
 
 @app.get("/health")
@@ -324,17 +396,20 @@ def me(current_user: User = Depends(get_current_user)) -> dict[str, str]:
 
 
 @app.post("/projects")
-def create_project(
-    payload: CreateProjectRequest,
+async def create_project(
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict[str, int | str]:
+    payload = await _extract_project_payload(request)
     project = Project(
         user_id=current_user.id,
         name=payload.name,
         video_name=payload.video_name,
         markers_json=json.dumps(payload.markers),
         duration=payload.duration,
+        video_data_url=payload.video_data_url,
+        thumbnail_data_url=payload.thumbnail_data_url,
     )
     db.add(project)
     db.commit()
@@ -359,6 +434,8 @@ def list_projects(
             "name": project.name,
             "video_name": project.video_name,
             "duration": project.duration,
+            "thumbnail_data_url": project.thumbnail_data_url,
+            "has_video": bool(project.video_data_url),
             "updated_at": project.updated_at.isoformat() if project.updated_at else None,
         }
         for project in projects
@@ -385,6 +462,8 @@ def get_project(
         "video_name": project.video_name,
         "markers": json.loads(project.markers_json),
         "duration": project.duration,
+        "video_data_url": project.video_data_url,
+        "thumbnail_data_url": project.thumbnail_data_url,
     }
 
 
@@ -407,6 +486,8 @@ def update_project(
     project.video_name = payload.video_name
     project.markers_json = json.dumps(payload.markers)
     project.duration = payload.duration
+    project.video_data_url = payload.video_data_url
+    project.thumbnail_data_url = payload.thumbnail_data_url
     project.updated_at = datetime.now(UTC)
     db.commit()
     return {"message": "Project updated."}

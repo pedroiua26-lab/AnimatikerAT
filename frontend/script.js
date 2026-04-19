@@ -1052,6 +1052,7 @@ function saveLocalProjectBackup(project) {
     video_name: project.video_name || "(re-upload required)",
     markers: Array.isArray(project.markers) ? project.markers : [],
     duration: Number(project.duration) || 0,
+    thumbnail_data_url: project.thumbnail_data_url || null,
     saved_at: new Date().toISOString(),
     source: "local",
   };
@@ -1180,23 +1181,35 @@ async function saveProject() {
   }
 
   const file = videoInput.files[0];
+  const thumbnailDataUrl = await captureVideoThumbnailDataUrl();
   const payload = {
     name: projectName.trim(),
     video_name: file ? file.name : "(re-upload required)",
     markers,
     duration: Number(videoPlayer.duration) || 0,
+    thumbnail_data_url: thumbnailDataUrl,
   };
   saveLocalProjectBackup(payload);
 
   saveProjectButton.disabled = true;
   setStatus("Saving project...");
   try {
+    const body = new FormData();
+    body.append("name", payload.name);
+    body.append("video_name", payload.video_name);
+    body.append("markers", JSON.stringify(payload.markers));
+    body.append("duration", String(payload.duration));
+    if (payload.thumbnail_data_url) {
+      body.append("thumbnail_data_url", payload.thumbnail_data_url);
+    }
+    if (file) {
+      body.append("video_file", file, file.name);
+    }
     await authorizedFetch("/projects", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body,
     });
-    setStatus("Project saved in cloud and local backup.", "success");
+    setStatus("Project and video saved in cloud (+ local backup metadata).", "success");
   } catch (error) {
     if (error.status === 401 || error.status === 403) {
       handleAuthExpired();
@@ -1213,6 +1226,49 @@ function closeModal() {
   if (projectModal) {
     projectModal.hidden = true;
   }
+}
+
+function setVideoFromDataUrl(dataUrl, fallbackName = "project-video.mp4") {
+  if (!dataUrl || typeof dataUrl !== "string") {
+    return false;
+  }
+
+  resetVideoSource();
+  videoPlayer.src = dataUrl;
+  videoPlayer.load();
+
+  try {
+    const mimeMatch = dataUrl.match(/^data:([^;]+);base64,/);
+    const mimeType = mimeMatch ? mimeMatch[1] : "video/mp4";
+    const extension = mimeType.split("/")[1] || "mp4";
+    const placeholder = new File([""], fallbackName.includes(".") ? fallbackName : `${fallbackName}.${extension}`, {
+      type: mimeType,
+    });
+    const transfer = new DataTransfer();
+    transfer.items.add(placeholder);
+    videoInput.files = transfer.files;
+  } catch {
+    // If DataTransfer isn't available, keep only the videoPlayer source set.
+  }
+
+  return true;
+}
+
+async function captureVideoThumbnailDataUrl() {
+  if (!videoPlayer.videoWidth || !videoPlayer.videoHeight) {
+    return null;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 320;
+  canvas.height = Math.round((canvas.width / videoPlayer.videoWidth) * videoPlayer.videoHeight);
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return null;
+  }
+
+  context.drawImage(videoPlayer, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.8);
 }
 
 async function openLoadProjectsModal() {
@@ -1242,7 +1298,17 @@ async function openLoadProjectsModal() {
       item.className = "project-item";
       const meta = document.createElement("div");
       const sourceLabel = project.source === "local" ? "local backup" : "cloud";
-      meta.innerHTML = `<strong>${project.name}</strong><br><small>${project.video_name} · ${sourceLabel}</small>`;
+      meta.className = "project-meta";
+      const thumb = document.createElement("img");
+      thumb.className = "project-thumb";
+      thumb.alt = `Thumbnail ${project.name}`;
+      thumb.src =
+        project.thumbnail_data_url ||
+        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='180'%3E%3Crect width='320' height='180' fill='%23374151'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%239CA3AF' font-size='20'%3ENo Thumb%3C/text%3E%3C/svg%3E";
+      const details = document.createElement("div");
+      details.innerHTML = `<strong>${project.name}</strong><br><small>${project.video_name} · ${sourceLabel}</small>`;
+      meta.appendChild(thumb);
+      meta.appendChild(details);
       const loadBtn = document.createElement("button");
       loadBtn.type = "button";
       loadBtn.textContent = "Load";
@@ -1261,7 +1327,13 @@ async function openLoadProjectsModal() {
           resetHistoryWithCurrentState();
           updateTable();
           closeModal();
-          setStatus(`Project loaded: ${detail.name}. Re-upload video: ${detail.video_name}`, "success");
+          const loadedVideo = setVideoFromDataUrl(detail.video_data_url, detail.video_name);
+          setStatus(
+            loadedVideo
+              ? `Project loaded: ${detail.name} (video restored from cloud).`
+              : `Project loaded: ${detail.name}. Re-upload video: ${detail.video_name}`,
+            "success",
+          );
         } catch (error) {
           if (error.status === 401 || error.status === 403) {
             handleAuthExpired();
@@ -1284,7 +1356,17 @@ async function openLoadProjectsModal() {
         const item = document.createElement("div");
         item.className = "project-item";
         const meta = document.createElement("div");
-        meta.innerHTML = `<strong>${project.name}</strong><br><small>${project.video_name} · local backup</small>`;
+        meta.className = "project-meta";
+        const thumb = document.createElement("img");
+        thumb.className = "project-thumb";
+        thumb.alt = `Thumbnail ${project.name}`;
+        thumb.src =
+          project.thumbnail_data_url ||
+          "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='180'%3E%3Crect width='320' height='180' fill='%23374151'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%239CA3AF' font-size='20'%3ENo Thumb%3C/text%3E%3C/svg%3E";
+        const details = document.createElement("div");
+        details.innerHTML = `<strong>${project.name}</strong><br><small>${project.video_name} · local backup</small>`;
+        meta.appendChild(thumb);
+        meta.appendChild(details);
         const loadBtn = document.createElement("button");
         loadBtn.type = "button";
         loadBtn.textContent = "Load";
