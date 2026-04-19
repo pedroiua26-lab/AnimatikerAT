@@ -89,8 +89,20 @@
         registerButton.textContent = "Registering...";
         setStatus("Sending verification email… this may take up to 30 seconds if the server is starting up.", "info");
         try {
-          await post("/register", { email });
-          setStatus("Check your email for the verification link.", "success");
+          const payload = await post("/register", { email });
+          if (payload.verification_token) {
+            setStatus(
+              payload.email_sent
+                ? "Verification link sent. Redirecting to setup..."
+                : "Email delivery unavailable. Redirecting to setup...",
+              "success"
+            );
+            setTimeout(() => {
+              window.location.href = `verify.html?token=${encodeURIComponent(payload.verification_token)}`;
+            }, 700);
+          } else {
+            setStatus("Registration started. Continue to verification.", "success");
+          }
         } catch (error) {
           setStatus(error.message, "error");
         } finally {
