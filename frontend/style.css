@@ -390,6 +390,19 @@ th {
   gap: 0.6rem;
 }
 
+.profile-form {
+  margin-top: 0.75rem;
+}
+
+.profile-form h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.profile-form button {
+  margin-top: 0.75rem;
+}
+
 .profile-item {
   background: #111827;
   border: 1px solid #4b5563;
