@@ -216,6 +216,33 @@ def send_verification_email(email: str, token: str) -> bool:
         return False
 
 
+def send_registration_confirmation_email(email: str) -> bool:
+    """Send a post-verification confirmation email to the registered address."""
+    if not RESEND_API_KEY:
+        print("WARNING: RESEND_API_KEY not set")
+        return False
+
+    login_link = f"{FRONTEND_URL}/login.html"
+    try:
+        resend.Emails.send(
+            {
+                "from": "onboarding@resend.dev",
+                "to": email,
+                "subject": "Account registration confirmed",
+                "html": f"""
+                    <h2>Your account is ready</h2>
+                    <p>Your registration has been confirmed successfully.</p>
+                    <p>You can now log in and start using Animatiker.</p>
+                    <a href=\"{login_link}\">{login_link}</a>
+                """,
+            }
+        )
+        return True
+    except Exception as exc:  # pragma: no cover - network service path
+        print("Registration confirmation email error:", exc)
+        return False
+
+
 @app.on_event("startup")
 def startup_event() -> None:
     ensure_directories()
@@ -273,6 +300,7 @@ def verify(payload: VerifyRequest, db: Session = Depends(get_db)) -> dict[str, b
     user.password_hash = pwd_context.hash(payload.password)
     user.is_verified = True
     db.commit()
+    send_registration_confirmation_email(user.email)
     return {"success": True}
 
 
