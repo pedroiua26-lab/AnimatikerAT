@@ -190,10 +190,10 @@ def get_current_user(
     return user
 
 
-def send_verification_email(email: str, token: str) -> None:
+def send_verification_email(email: str, token: str) -> bool:
     if not RESEND_API_KEY:
         print("WARNING: RESEND_API_KEY not set")
-        return
+        return False
 
     verify_link = f"{FRONTEND_URL}/verify.html?token={token}"
 
@@ -210,8 +210,10 @@ def send_verification_email(email: str, token: str) -> None:
                 """,
             }
         )
+        return True
     except Exception as exc:  # pragma: no cover - network service path
         print("Email send error:", exc)
+        return False
 
 
 @app.on_event("startup")
@@ -226,7 +228,7 @@ def health() -> dict[str, str]:
 
 
 @app.post("/register")
-def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> dict[str, str]:
+def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> dict[str, str | bool]:
     existing = db.query(User).filter(User.email == payload.email).first()
     if existing and existing.is_verified:
         raise HTTPException(status_code=400, detail="Email already registered.")
@@ -243,8 +245,12 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> dict[st
         db.add(User(email=payload.email, is_verified=False))
 
     db.commit()
-    send_verification_email(payload.email, token)
-    return {"message": "Registration started. Check your email for verification."}
+    email_sent = send_verification_email(payload.email, token)
+    return {
+        "message": "Registration started. Continue verification to finish setup.",
+        "verification_token": token,
+        "email_sent": email_sent,
+    }
 
 
 @app.post("/verify")
