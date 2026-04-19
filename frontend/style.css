@@ -351,6 +351,23 @@ th {
   align-items: center;
 }
 
+.project-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.project-thumb {
+  width: 110px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #4b5563;
+  background: #111827;
+  flex-shrink: 0;
+}
+
 .auth-panel {
   max-width: 420px;
   margin: 1rem auto;
