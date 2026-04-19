@@ -1365,20 +1365,20 @@ async function openLoadProjectsModal() {
           normalizeMarkers();
           selectedMarkerIndex = null;
           selectedMarkerLockedToPlayhead = false;
-          renderMarkers();
+          updateTable();
+          updateTimeline();
           applyChanges();
           resetHistoryWithCurrentState();
-          updateTable();
           closeModal();
-          const loadedVideoFromCloud = setVideoFromDataUrl(detail.video_data_url, detail.video_name);
-          const loadedVideoFromLocalPath =
-            !loadedVideoFromCloud && setVideoFromLocalPath(detail.local_video_path || project.local_video_path);
-          const loadedVideo = loadedVideoFromCloud || loadedVideoFromLocalPath;
+          const loadedVideoFromLocalPath = setVideoFromLocalPath(detail.local_video_path || project.local_video_path);
+          const loadedVideoFromCloud =
+            !loadedVideoFromLocalPath && setVideoFromDataUrl(detail.video_data_url, detail.video_name);
+          const loadedVideo = loadedVideoFromLocalPath || loadedVideoFromCloud;
           setStatus(
             loadedVideo
-              ? loadedVideoFromCloud
-                ? `Project loaded: ${detail.name} (video restored from cloud).`
-                : `Project loaded: ${detail.name} (video found automatically on this computer).`
+              ? loadedVideoFromLocalPath
+                ? `Project loaded: ${detail.name} (video loaded from saved file path).`
+                : `Project loaded: ${detail.name} (video restored from cloud).`
               : `Project loaded: ${detail.name}. Re-upload video: ${detail.video_name}`,
             "success",
           );
@@ -1423,15 +1423,15 @@ async function openLoadProjectsModal() {
           normalizeMarkers();
           selectedMarkerIndex = null;
           selectedMarkerLockedToPlayhead = false;
-          renderMarkers();
+          updateTable();
+          updateTimeline();
           applyChanges();
           resetHistoryWithCurrentState();
-          updateTable();
           closeModal();
           const loadedVideoFromLocalPath = setVideoFromLocalPath(project.local_video_path);
           setStatus(
             loadedVideoFromLocalPath
-              ? `Project loaded: ${project.name} (video found automatically on this computer).`
+              ? `Project loaded: ${project.name} (video loaded from saved file path).`
               : `Project loaded: ${project.name}. Re-upload video: ${project.video_name}`,
             "success",
           );
@@ -1483,8 +1483,8 @@ videoPlayer.addEventListener("loadedmetadata", () => {
   detectedVideoFps = FPS;
   fpsProbeActive = false;
   fpsProbeRequestId = null;
+  updateTable();
   updateTimeline();
-  renderMarkers();
   updatePlayhead();
 });
 
