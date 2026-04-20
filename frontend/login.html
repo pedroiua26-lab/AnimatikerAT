@@ -101,7 +101,13 @@
             });
             clearTimeout(timeoutId);
             const payload = await response.json().catch(() => ({}));
-            if (!response.ok) throw new Error(payload.detail || "Request failed");
+            if (!response.ok) {
+              const detail = payload.detail;
+              const msg = Array.isArray(detail)
+                ? detail.map(e => e.msg || String(e)).join("; ")
+                : (typeof detail === "string" ? detail : "Request failed");
+              throw new Error(msg);
+            }
             return payload;
           } catch (err) {
             clearTimeout(timeoutId);
